@@ -767,7 +767,7 @@ class LaneNet(nn.Module):
 class ChoiceHead(nn.Module):
     def __init__(self, d_model, out_size, dropout, choices=3):
         super(ChoiceHead, self).__init__()
-        self.model_list = [GeneratorWithParallelHeads626(d_model, out_size, dropout) for i in range(choices)]
+        self.model_list = nn.ModuleList([GeneratorWithParallelHeads626(d_model, out_size, dropout) for i in range(choices)])
 
     def forward(self, x, idx):
         pred_coord, pred_class = [], []
@@ -777,7 +777,7 @@ class ChoiceHead(nn.Module):
             pred_class.append(res2.unsqueeze(-1))
         pred_coord = torch.cat(pred_coord, dim=-1)
         pred_class = torch.cat(pred_class, dim=-1)
-        idx = torch.max(idx - 1, torch.zeros_like(idx))
+        idx = idx - (idx > 0).int()
 
         pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape, 1, 1, 1, 1).repeat(1, 1, 6, 80, 2, 1))
         pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1, 1).repeat(1, 1, 6, 1))
