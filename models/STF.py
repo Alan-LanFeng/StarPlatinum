@@ -1,8 +1,15 @@
 import torch.nn as nn
 import torch
-from models.utils import *
+from models.utils import (
+    EncoderDecoder, Encoder, EncoderLayer,
+    Decoder, DecoderLayer,
+    MultiHeadAttention, PointerwiseFeedforward, SublayerConnection,
+    LinearEmbedding, PositionalEncoding,
+    GeneratorWithParallelHeads626, ChoiceHead, LaneNet
+)
 import sys
 import copy
+
 
 class STF(nn.Module):
     def __init__(self, cfg):
@@ -22,7 +29,7 @@ class STF(nn.Module):
 
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
-        ff = PointerwiseFeedforward(d_model, d_model*2, dropout)
+        ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
         position = PositionalEncoding(d_model, dropout)
 
         self.query_embed = nn.Embedding(prop_num, d_model)
@@ -43,7 +50,8 @@ class STF(nn.Module):
         # trajectory module
         hist = data['hist']
         hist_mask = data['hist_mask'].unsqueeze(-2)
-        self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],                                                                                               1, 1)
+        self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
+                                                                                                       1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
 
         # TODO: lane module
@@ -53,4 +61,3 @@ class STF(nn.Module):
         outputs_coord, outputs_class = self.prediction_head(hist_out,obj_type)
 
         return outputs_coord, outputs_class
-
