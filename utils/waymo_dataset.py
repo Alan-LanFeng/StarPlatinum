@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 import argparse
 from tqdm import tqdm
+from l5kit.configs import load_config_data
 
 MAX_LANE_NUM = 660
 MAX_NBRS_NUM = 127
@@ -23,16 +24,17 @@ import os
 
 class WaymoDataset(Dataset):
 
-    def __init__(self, root: str = '/data/uncompressed/trans', period: str = 'training', cache: bool = True):
+    def __init__(self, cfg,period):
         super(WaymoDataset, self).__init__()
 
         periods = ['testing', 'testing_interactive', 'training', 'validation', 'validation_interactive']
         assert period in periods
 
-        self.root = root
+        self.root = cfg['dataset_dir']
         self.period = period
-        self.path = os.path.join(root, period)
-        self.cache = cache
+        self.path = os.path.join(self.root, period)
+        self.cache = cfg['cache']
+        self.shrink = cfg['shrink']
 
     def __len__(self):
         with open(os.path.join(self.root, 'len.txt'), 'r') as f:
@@ -40,7 +42,7 @@ class WaymoDataset(Dataset):
         i = 0
         while l[i] != self.period:
             i = i + 2
-        return int(l[i + 1]) // 50 * 9
+        return int(l[i + 1]) // 5 if self.shrink else int(l[i + 1])
 
     def __getitem__(self, index):
         if self.cache:
@@ -60,7 +62,7 @@ class WaymoDataset(Dataset):
         # data['nbrs_p_c_f'][:, 9::-1, -2] = data['nbrs_p_c_f'][:, 9::-1, -2].cumsum(-1) == np.ones(10).cumsum()
         mask = traj[..., :CURRENT, -2] * traj[..., 1:CURRENT + 1, -2]
         return np.pad(vector,[(0,MAX_AGENT_NUM-vector.shape[0]),(0,0),(0,0)]), \
-               np.pad(mask,[(0,MAX_AGENT_NUM-mask.shape[0]),(0,0)])
+               np.pad(mask,[(0,MAX_AGENT_NUM-mask.shape[0]),(0,0)]).astype(bool)
 
     # TODO: try control signal, try rho theta
     # current gt:, ego-centric 2d vector
@@ -204,13 +206,13 @@ class WaymoDataset(Dataset):
         # predict list
         motion_list = data['tracks_to_predict'][current_valid_index]
         interaction_list = data['objects_of_interest'][current_valid_index]
-        out['tracks_to_predict'] =  np.pad(motion_list,[0,MAX_NBRS_NUM+1-valid_agent_num])
-        out['objects_of_interest'] = np.pad(interaction_list,[0,MAX_NBRS_NUM+1-valid_agent_num])
+        out['tracks_to_predict'] =  np.pad(motion_list,[0,MAX_NBRS_NUM+1-valid_agent_num]).astype(bool)
+        out['objects_of_interest'] = np.pad(interaction_list,[0,MAX_NBRS_NUM+1-valid_agent_num]).astype(bool)
 
         # obj type
-        out['obj_type'] = np.pad(all_traj[:,CURRENT,9],(0,MAX_NBRS_NUM+1-valid_agent_num))
+        out['obj_type'] = np.pad(all_traj[:,CURRENT,9],(0,MAX_NBRS_NUM+1-valid_agent_num)).astype(int)
         out['velocity'] = np.pad(all_traj[...,3:5],[(0,MAX_NBRS_NUM+1-valid_agent_num),(0,0),(0,0)])
-        out['agent_id'] = np.pad(all_traj[:,CURRENT,-1],(0,MAX_NBRS_NUM+1-valid_agent_num))
+        out['agent_id'] = np.pad(all_traj[:,CURRENT,-1],(0,MAX_NBRS_NUM+1-valid_agent_num)).astype(int)
         try:
             out['state_id'] = str(data['id'][0], 'utf-8')
         except:
@@ -220,15 +222,18 @@ class WaymoDataset(Dataset):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dir', type=str, default='/mnt/lustre/share/zhangqihang/WOD/trans')
+    parser.add_argument('--cfg', default='0')
     args = parser.parse_args()
-    cache_root = args.dir[:args.dir.find('trans')]
-
+    cfg = load_config_data(f"../config/{args.cfg}.yaml")
+    dataset_cfg = cfg['dataset_cfg']
+    dataset_cfg['cache'] = False
+    dir = dataset_cfg['dataset_dir']
+    cache_root = dir[:dir.find('trans')]
     periods = ['training', 'validation', 'testing','validation_interactive', 'testing_interactive']
     batch_size = 16
     for period in periods:
-        ds = WaymoDataset(root=args.dir, period=period, cache=False)
-        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=2)
+        ds = WaymoDataset(dataset_cfg,period)
+        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=8)
         progress_bar = tqdm(loader)
         cnt = 0
         for data in progress_bar:
