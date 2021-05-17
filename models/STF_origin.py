@@ -69,7 +69,7 @@ class STF(nn.Module):
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
-        max_agent = torch.max(valid_len[:, 0])
+        max_agent = max(torch.max(valid_len[:, 0]),self.max_pred_num)
         max_lane = torch.max(valid_len[:, 1])
         max_adj_lane = torch.max(valid_len[:, 2])
         batch_size = valid_len.shape[0]
