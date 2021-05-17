@@ -58,9 +58,10 @@ class STF(nn.Module):
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_len = data['max_len']
-        max_agent = torch.max(valid_len[:, 0])
+        max_agent = max(torch.max(valid_len[:, 0]),self.max_pred_num)
         # trajectory module
         hist = data['hist'][:, :max_agent]
+
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                        1, 1)
