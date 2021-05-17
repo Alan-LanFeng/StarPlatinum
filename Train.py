@@ -114,6 +114,8 @@ if __name__ == "__main__":
         # eval_dict = evaluator.evaluate(Generator, mode=cfg['model_params']['data_mode'])
 
         # save after every epoch
+        if not os.path.exists('./saved_models/'):
+            os.mkdir('./saved_models/')
         model_save_name = os.path.join(
             'saved_models', '{}_{}.pt'.format(args.model_name, epoch + 1))
 

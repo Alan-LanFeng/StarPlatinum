@@ -98,8 +98,7 @@ class Loss(torch.nn.Module):
 
         inside_mask = (torch.norm(target_endpoint - prediction_endpoint, p=2, dim=-1) < 8.0)
         missed = (inside_mask.sum(dim=(-1)) == 0)
-        miss_rate = torch.mean(missed[predict_flag].to(float))
-
+        miss_rate = torch.mean(missed[predict_flag].float())
         return miss_rate
 
 

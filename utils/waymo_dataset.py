@@ -47,7 +47,7 @@ class WaymoDataset(Dataset):
     def __getitem__(self, index):
         if self.cache:
             cache_root = self.root[:self.root.find('trans')]
-            cache_file = os.path.join(cache_root, 'cache', self.period, f'{index}.pkl')
+            cache_file = os.path.join(cache_root, 'cache1', self.period, f'{index}.pkl')
             with open(cache_file, 'rb') as f:
                 data = pickle.load(f)
             return data
@@ -243,7 +243,7 @@ if __name__ == '__main__':
             except:
                 pass
 
-            path_name = os.path.join(cache_root, 'cache', period)
+            path_name = os.path.join(cache_root, 'cache1', period)
             if not os.path.exists(path_name):
                 os.makedirs(path_name)
             for i in range(batch_size):
