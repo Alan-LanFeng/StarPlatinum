@@ -71,7 +71,7 @@ class Loss(torch.nn.Module):
         best_pred = torch.gather(pred, dim=-3, index=expected_traj_index).squeeze(2)
         reg_loss = torch.nn.SmoothL1Loss(reduction= 'none')(best_pred, gt).mean(-1)
 
-        loss_sum = (reg_loss * gt_mask).sum(dim=-1)
+        loss_sum = ((reg_loss * gt_mask).sum(dim=-1))*predict_flag
         gt_sum = gt_mask.sum(dim = -1)
         gt_sum[gt_sum==0]=1
         mean_agent_loss = loss_sum/gt_sum
