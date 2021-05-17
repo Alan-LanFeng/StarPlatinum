@@ -8,7 +8,7 @@ dataset_cfg:
   cache: True
   shrink: True
   dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
-  #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
+  dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
   batch_size: 64
   num_workers: 4
@@ -37,4 +37,4 @@ train_cfg:
 
 # loss related
 loss_cfg:
-  K: 1
+  K: 100
