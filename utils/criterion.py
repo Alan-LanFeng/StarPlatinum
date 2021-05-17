@@ -14,8 +14,8 @@ class Loss(torch.nn.Module):
         self.alpha = 0.01
         self.K = cfg['K']
 
-    def forward(self, pred, data: dict):
-        pred, conf = pred[0], pred[1]
+    def forward(self, pred):
+        pred, conf, data = pred[0], pred[1], pred[2]
         gt, gt_mask = data['gt'], data['gt_mask']
         gt_valid_len = torch.sum(gt_mask,-1)-1
         gt_valid_len[gt_valid_len<0] = 0
