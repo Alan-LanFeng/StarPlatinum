@@ -730,6 +730,7 @@ class GeneratorWithParallelHeadsRefine(nn.Module):
         conf = self.cls_opt(cls_dist)
         return pred, conf
 
+
 class MLP(nn.Module):
     def __init__(self, in_channels, hidden_unit, verbose=False):
         super(MLP, self).__init__()
@@ -742,6 +743,7 @@ class MLP(nn.Module):
     def forward(self, x):
         x = self.mlp(x)
         return x
+
 
 class LaneNet(nn.Module):
     def __init__(self, in_channels, hidden_unit, num_subgraph_layers):
@@ -764,10 +766,12 @@ class LaneNet(nn.Module):
         x_max = torch.max(x, -2)[0]
         return x_max
 
+
 class ChoiceHead(nn.Module):
     def __init__(self, d_model, out_size, dropout, choices=3):
         super(ChoiceHead, self).__init__()
-        self.model_list = nn.ModuleList([GeneratorWithParallelHeads626(d_model, out_size, dropout) for i in range(choices)])
+        self.model_list = nn.ModuleList(
+            [GeneratorWithParallelHeads626(d_model, out_size, dropout) for i in range(choices)])
 
     def forward(self, x, idx):
         pred_coord, pred_class = [], []
@@ -785,8 +789,8 @@ class ChoiceHead(nn.Module):
         pred_class = pred_class.squeeze(-1)
         return pred_coord, pred_class
 
+
 def split_dim(x: torch.Tensor, split_shape: tuple, dim: int):
     if dim < 0:
         dim = len(x.shape) + dim
     return x.reshape(*x.shape[:dim], *split_shape, *x.shape[dim + 1:])
-

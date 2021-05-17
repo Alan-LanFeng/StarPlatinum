@@ -1,7 +1,7 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF'
+model_name: 'STF_origin'
 
 # dataset related
 dataset_cfg:
@@ -21,6 +21,8 @@ model_cfg:
   out_dims: 160
   subgraph_width_unit: 32
   num_subgraph_layers: 2
+  enc_dims:
+
   prop_num: 6
   d_model: 128
   attention_head: 2

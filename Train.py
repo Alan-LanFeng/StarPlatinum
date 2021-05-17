@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from utils.waymo_dataset import WaymoDataset
-from utils.utilities import load_model_class, load_checkpoint,save_checkpoint
+from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
 # =========================evaluation======================================
@@ -107,7 +107,8 @@ if __name__ == "__main__":
                 losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
             progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, total_miss_rate * 100))
 
-            log_dict = {"loss/totalloss": loss.detach(), "los/reg":losses['reg_loss'],"los/cls":losses['cls_loss'],'MR': miss_rate}
+            log_dict = {"loss/totalloss": loss.detach(), "los/reg": losses['reg_loss'], "los/cls": losses['cls_loss'],
+                        'MR': miss_rate}
 
             for k, v in log_dict.items():
                 writer.add_scalar(k, v, cnt)

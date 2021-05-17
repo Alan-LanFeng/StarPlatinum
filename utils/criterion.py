@@ -17,13 +17,17 @@ class Loss(torch.nn.Module):
     def forward(self, pred):
         pred, conf, data = pred[0], pred[1], pred[2]
         gt, gt_mask = data['gt'], data['gt_mask']
-        gt_valid_len = torch.sum(gt_mask,-1)-1
-        gt_valid_len[gt_valid_len<0] = 0
+        gt_valid_len = torch.sum(gt_mask, -1) - 1
+        gt_valid_len[gt_valid_len < 0] = 0
         gt_cum = gt.cumsum(-2)
-        gt_end_point = torch.gather(gt_cum, dim=-2, index=gt_valid_len.reshape(*gt_valid_len.shape,1,1).repeat(1,1,1,2))
+        gt_end_point = torch.gather(gt_cum, dim=-2,
+                                    index=gt_valid_len.reshape(*gt_valid_len.shape, 1, 1).repeat(1, 1, 1, 2))
 
         pred_cum = pred.cumsum(dim=-2)
-        pred_endpoint = torch.gather(pred_cum, dim=-2, index=gt_valid_len.reshape(*gt_valid_len.shape,1,1,1).repeat(1,1,pred.shape[2],1,2)).squeeze(-2)
+        pred_endpoint = torch.gather(pred_cum, dim=-2,
+                                     index=gt_valid_len.reshape(*gt_valid_len.shape, 1, 1, 1).repeat(1, 1,
+                                                                                                     pred.shape[2], 1,
+                                                                                                     2)).squeeze(-2)
         dis_mat = torch.norm((gt_end_point - pred_endpoint), p=2, dim=-1)  # [batch, nbrs_num+1, K] #TODO fix this
         index = torch.argmin(dis_mat, dim=-1)  # [batch, nbrs_num+1, 1]
 
@@ -36,7 +40,7 @@ class Loss(torch.nn.Module):
 
         losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss}
 
-        loss = self.K*reg_loss + cls_loss
+        loss = self.K * reg_loss + cls_loss
 
         return loss, losses, miss_rate
 
@@ -53,9 +57,9 @@ class Loss(torch.nn.Module):
         KL_loss = torch.nn.KLDivLoss(reduction='none')(score, target)
 
         predict_flag = predict_flag.unsqueeze(-1)
-        cls_loss_sum = (KL_loss*predict_flag).sum()
-        agent_sum = max(predict_flag.sum(),1)
-        cls_loss = cls_loss_sum/agent_sum
+        cls_loss_sum = (KL_loss * predict_flag).sum()
+        agent_sum = max(predict_flag.sum(), 1)
+        cls_loss = cls_loss_sum / agent_sum
         return cls_loss
 
     def huber_loss(self, predict_flag, pred, gt, expected_traj_index, gt_mask):
@@ -69,14 +73,14 @@ class Loss(torch.nn.Module):
         expected_traj_index = expected_traj_index.view(*expected_traj_index.shape, 1, 1, 1).repeat(
             (1, 1, 1, *pred.shape[3:]))  # [batch_size, nbrs_num+1, K, 30, 2]
         best_pred = torch.gather(pred, dim=-3, index=expected_traj_index).squeeze(2)
-        reg_loss = torch.nn.SmoothL1Loss(reduction= 'none')(best_pred, gt).mean(-1)
+        reg_loss = torch.nn.SmoothL1Loss(reduction='none')(best_pred, gt).mean(-1)
 
-        loss_sum = ((reg_loss * gt_mask).sum(dim=-1))*predict_flag
-        gt_sum = gt_mask.sum(dim = -1)
-        gt_sum[gt_sum==0]=1
-        mean_agent_loss = loss_sum/gt_sum
-        agent_sum = max(predict_flag.sum(),1)
-        reg_loss = mean_agent_loss.sum()/agent_sum
+        loss_sum = ((reg_loss * gt_mask).sum(dim=-1)) * predict_flag
+        gt_sum = gt_mask.sum(dim=-1)
+        gt_sum[gt_sum == 0] = 1
+        mean_agent_loss = loss_sum / gt_sum
+        agent_sum = max(predict_flag.sum(), 1)
+        reg_loss = mean_agent_loss.sum() / agent_sum
         return reg_loss
 
     def multi_task_gather(self, losses):
@@ -104,8 +108,6 @@ class Loss(torch.nn.Module):
         '''
 
         inside_mask = (torch.norm(target_endpoint - prediction_endpoint, p=2, dim=-1) < 8.0)
-        missed = (inside_mask.sum(dim=(-1)) == 0)*predict_flag
-        mr = missed.sum()/max(predict_flag.sum().float(),1)
+        missed = (inside_mask.sum(dim=(-1)) == 0) * predict_flag
+        mr = missed.sum() / max(predict_flag.sum().float(), 1)
         return mr
-
-
