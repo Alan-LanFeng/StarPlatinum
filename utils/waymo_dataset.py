@@ -165,8 +165,18 @@ class WaymoDataset(Dataset):
 
     # TODO: not implemented
     def traffic_process(self, traf):
-        # id_set = traf[-1,:,0]
-        return traf
+        id_set = traf[-1,:,0]
+        valid_traf = traf[-1,:,-1] == 1
+        traf_reshape = np.zeros(16,11,6)
+
+        for time in range(CURRENT+1):
+            all_traf = traf[time, :, 0]
+            for index, id in enumerate(id_set):
+                pos = all_traf.argwhere(all_traf==id)
+                traf_reshape[index,time] = traf[time,pos]
+
+
+        return traf_reshape
 
     def process(self, data):
         out = dict()
@@ -196,7 +206,7 @@ class WaymoDataset(Dataset):
         out['adj_index'], out['adj_mask'] = self.map_allocation(all_traj[..., CURRENT, :2], all_traj[..., CURRENT, 5],
                                                                 out['lane_vector'][:lane_num])
         # traffic light
-        # out['traf'] = self.traffic_process(data['traf_p_c_f'][:CURRENT+1])
+        out['traf'] = self.traffic_process(data['traf_p_c_f'][:CURRENT+1])
 
         # trunk related----------------------#
         adj_lane_num = np.max(np.sum(out['adj_mask'], axis=1))

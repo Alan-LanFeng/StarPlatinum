@@ -1,7 +1,7 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF_origin'
+model_name: 'STF'
 
 # dataset related
 dataset_cfg:
