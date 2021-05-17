@@ -2,16 +2,17 @@
 format_version: 4
 
 model_name: 'STF'
+track: 'motion'
 
 # dataset related
 dataset_cfg:
   cache: True
   shrink: True
-  dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
+  dataset_dir: '/data/uncompressed/trans'
   #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
-  batch_size: 64
-  num_workers: 4
+  batch_size: 8
+  num_workers: 1
 
 # model related
 model_cfg:
@@ -21,7 +22,7 @@ model_cfg:
   out_dims: 160
   subgraph_width_unit: 32
   num_subgraph_layers: 2
-  prop_num: 36
+  prop_num: 100
   d_model: 128
   attention_head: 2
   dropout: 0.0
@@ -35,6 +36,11 @@ train_cfg:
   lr_decay_per_epoch: 15
   decay_rate: 0.2
   max_norm_gradient: 0.1
+
+eval_cfg:
+  shuffle: False
+  batch_size: 8
+  num_workers: 2
 
 # loss related
 loss_cfg:

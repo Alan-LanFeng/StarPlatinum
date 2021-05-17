@@ -177,6 +177,10 @@ class WaymoDataset(Dataset):
         # traj
         data['ego_p_c_f'] = np.expand_dims(data['ego_p_c_f'], 0)
         all_traj = np.concatenate([data['ego_p_c_f'], data['nbrs_p_c_f']], 0)
+
+        misc_list = [0, 1, 6, 7, 5, 3, 4, 11, 12]
+        out['misc'] = all_traj[:, :, misc_list]
+
         current_valid_index = all_traj[..., CURRENT, -2] == 1
         valid_agent_num = sum(current_valid_index)
         all_traj = all_traj[current_valid_index]
@@ -239,7 +243,7 @@ if __name__ == '__main__':
         for data in progress_bar:
             try:
                 for k, v in data.items():
-                    data[k] = data[k].squeeze(0).numpy()
+                    data[k] = data[k].numpy()
             except:
                 pass
 

@@ -95,13 +95,19 @@ class STF(nn.Module):
         vel = torch.gather(vel, 1, gather_vel)
         agent_id = data['agent_id'][:, :max_agent]
         agent_id = torch.gather(agent_id, 1, gather_list)
+
+        misc = data['misc'][:, :max_agent]
+        misc = torch.gather(misc, 1, gather_list.view(*gather_list.shape, 1, 1).repeat(1,1,*misc.shape[-2:]))
+
         new_data = {
             'gt': gt,
             'gt_mask': gt_mask,
             'cur_pos': cur_pos,
             'vel': vel,
             'agent_id': agent_id,
-            'tracks_to_predict': gather_mask
+            'tracks_to_predict': gather_mask,
+            'misc': misc,
+            'obj_type': obj_type
         }
 
         outputs_coord, outputs_class = self.prediction_head(hist_out, obj_type)

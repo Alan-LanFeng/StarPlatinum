@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from utils.waymo_dataset import WaymoDataset
+from utils.evaluator import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
@@ -46,7 +47,7 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
     # ================================evaluation Method==========================================
-    # evaluator = WODEvaluator(cfg, args.waymo_dir, device, gpu_num)
+    evaluator = WODEvaluator(cfg, device, gpu_num)
     # =================================== INIT Model ============================================================
     model = load_model_class(cfg['model_name'])
     model_cfg = cfg['model_cfg']
@@ -59,8 +60,9 @@ if __name__ == "__main__":
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=train_cfg['lr_decay_per_epoch'],
                                           gamma=train_cfg['decay_rate'])
 
-    model = torch.nn.DataParallel(model, list(range(gpu_num)))
-    model = model.to(device)
+    if not args.local:
+        model = torch.nn.DataParallel(model, list(range(gpu_num)))
+        model = model.to(device)
 
     if args.resume:
         resume_model_name = os.path.join(
@@ -115,7 +117,7 @@ if __name__ == "__main__":
             cnt += 1
 
         scheduler.step()
-        # eval_dict = evaluator.evaluate(Generator, mode=cfg['model_params']['data_mode'])
+        eval_dict = evaluator.evaluate(model)
 
         # save after every epoch
         if not os.path.exists('./saved_models/'):
