@@ -102,9 +102,12 @@ if __name__ == "__main__":
             # * Display the results.
             total_miss_rate = (j * total_miss_rate + miss_rate) / (j + 1)
 
-            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses, total_miss_rate * 100))
+            losses_text = ''
+            for loss_name in losses:
+                losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
+            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, total_miss_rate * 100))
 
-            log_dict = {"loss/totalloss": loss.detach(), 'MR': miss_rate}
+            log_dict = {"loss/totalloss": loss.detach(), "los/reg":losses['reg_loss'],"los/cls":losses['cls_loss'],'MR': miss_rate}
 
             for k, v in log_dict.items():
                 writer.add_scalar(k, v, cnt)

@@ -37,10 +37,8 @@ class Loss(torch.nn.Module):
         losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss}
 
         loss = self.K*reg_loss + cls_loss
-        losses_text = ''
-        for loss_name in losses:
-            losses_text += loss_name+':{:.3f} '.format(losses[loss_name])
-        return loss, losses_text, miss_rate
+
+        return loss, losses, miss_rate
 
     def maxEntropyLoss(self, predict_flag, score, dis_mat):
         '''
