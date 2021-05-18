@@ -317,7 +317,7 @@ def check_output(data, model, criterion):
 def load_model_class(model_name):
     import importlib
     module_path = f'models.{model_name}'
-    module_name = 'STF'
+    module_name = model_name
     target_module = importlib.import_module(module_path)
     target_class = getattr(target_module, module_name)
     return target_class

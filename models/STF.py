@@ -22,13 +22,14 @@ def bool2index(mask):
 
 
 class STF(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, device):
         super(STF, self).__init__()
         self.lanenet = LaneNet(
             cfg['lane_dims'],
             cfg['subgraph_width_unit'],
             cfg['num_subgraph_layers'])
         self.max_pred_num = cfg['max_pred_num']
+        self.device = device
 
         # num of proposal
         prop_num = cfg['prop_num']
