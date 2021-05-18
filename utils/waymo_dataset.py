@@ -34,6 +34,7 @@ class WaymoDataset(Dataset):
         self.period = period
         self.path = os.path.join(self.root, period)
         self.cache = cfg['cache']
+        self.cache_name = cfg['cache_name']
         self.shrink = cfg['shrink']
 
     def __len__(self):
@@ -47,7 +48,7 @@ class WaymoDataset(Dataset):
     def __getitem__(self, index):
         if self.cache:
             cache_root = self.root[:self.root.find('trans')]
-            cache_file = os.path.join(cache_root, 'cache1', self.period, f'{index}.pkl')
+            cache_file = os.path.join(cache_root, self.cache_name, self.period, f'{index}.pkl')
             with open(cache_file, 'rb') as f:
                 data = pickle.load(f)
             return data
@@ -234,7 +235,7 @@ if __name__ == '__main__':
     dir = dataset_cfg['dataset_dir']
     cache_root = dir[:dir.find('trans')]
     periods = ['training', 'validation', 'testing','validation_interactive', 'testing_interactive']
-    batch_size = 16
+    batch_size = 64
     for period in periods:
         ds = WaymoDataset(dataset_cfg,period)
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=8)
@@ -247,7 +248,7 @@ if __name__ == '__main__':
             except:
                 pass
 
-            path_name = os.path.join(cache_root, 'cache1', period)
+            path_name = os.path.join(cache_root, dataset_cfg['cache_name'], period)
             if not os.path.exists(path_name):
                 os.makedirs(path_name)
             for i in range(batch_size):
