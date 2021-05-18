@@ -1,5 +1,4 @@
 from torch.utils.data import Dataset, DataLoader
-import os
 import pickle
 import numpy as np
 import argparse
@@ -24,7 +23,7 @@ import os
 
 class WaymoDataset(Dataset):
 
-    def __init__(self, cfg,period):
+    def __init__(self, cfg, period):
         super(WaymoDataset, self).__init__()
 
         periods = ['testing', 'testing_interactive', 'training', 'validation', 'validation_interactive']
@@ -62,8 +61,8 @@ class WaymoDataset(Dataset):
         vector = np.concatenate([traj[..., :CURRENT, :2], traj[..., 1:CURRENT + 1, :2]], -1)
         # data['nbrs_p_c_f'][:, 9::-1, -2] = data['nbrs_p_c_f'][:, 9::-1, -2].cumsum(-1) == np.ones(10).cumsum()
         mask = traj[..., :CURRENT, -2] * traj[..., 1:CURRENT + 1, -2]
-        return np.pad(vector,[(0,MAX_AGENT_NUM-vector.shape[0]),(0,0),(0,0)]), \
-               np.pad(mask,[(0,MAX_AGENT_NUM-mask.shape[0]),(0,0)]).astype(bool)
+        return np.pad(vector, [(0, MAX_AGENT_NUM - vector.shape[0]), (0, 0), (0, 0)]), \
+               np.pad(mask, [(0, MAX_AGENT_NUM - mask.shape[0]), (0, 0)]).astype(bool)
 
     # TODO: try control signal, try rho theta
     # current gt:, ego-centric 2d vector
@@ -76,8 +75,8 @@ class WaymoDataset(Dataset):
         vector = ego_centric[..., 1:, :2] - ego_centric[..., :-1, :2]
         mask = future[..., 1:, -2] * future[..., :-1, -2]
         cum_mask = mask.cumsum(-1) == np.ones_like(mask).cumsum(-1)
-        return np.pad(vector,[(0,MAX_AGENT_NUM-vector.shape[0]),(0,0),(0,0)]), \
-               np.pad(cum_mask,[(0,MAX_AGENT_NUM-cum_mask.shape[0]),(0,0)])
+        return np.pad(vector, [(0, MAX_AGENT_NUM - vector.shape[0]), (0, 0), (0, 0)]), \
+               np.pad(cum_mask, [(0, MAX_AGENT_NUM - cum_mask.shape[0]), (0, 0)])
 
     def lane_process(self, lane):
 
@@ -90,7 +89,7 @@ class WaymoDataset(Dataset):
                 continue
             arg = np.where(rid == _id)[0]
             # feature includes x,y,type,validity
-            lis = [1, 2, 7, 8]
+            lis = [1, 2, 7, 8, 0]
             feat = lane[arg, :]
             # filter lane type white/yellow lane
             if feat[0, 7] in range(6, 14):
@@ -111,12 +110,12 @@ class WaymoDataset(Dataset):
 
         lane_feat = np.array(feat_list)
         valid_len = lane_feat.shape[0]
-
+        lane_id = lane_feat[:, 0, -1]
         # vectorize each lane
         one_point = np.sum(lane_feat[:, :, -1], -1) == 1
         vector_xy = np.concatenate((lane_feat[:, :-1, :2], lane_feat[:, 1:, :2]), -1)
-        vector_type = lane_feat[:, :-1, -2]
-        vector_valid = lane_feat[:, 1:, -1] * lane_feat[:, :-1, -1]
+        vector_type = lane_feat[:, :-1, -3]
+        vector_valid = lane_feat[:, 1:, -2] * lane_feat[:, :-1, -2]
         lane_vector = np.concatenate([vector_xy, vector_type[:, :, np.newaxis], vector_valid[:, :, np.newaxis]],
                                      axis=-1).astype(np.float32)
         lane_vector[one_point, 0, 2:4] = lane_vector[one_point, 0, 0:2]
@@ -124,7 +123,7 @@ class WaymoDataset(Dataset):
         invalid = lane_vector[:, :, -1] == 0
         lane_vector[invalid, :] = 0
         lane_vector = np.pad(lane_vector, [(0, MAX_LANE_NUM - lane_vector.shape[0]), (0, 0), (0, 0)])
-        return lane_vector, valid_len
+        return lane_vector, valid_len, lane_id
 
     def map_allocation(self, xy, theta, lane):
 
@@ -164,10 +163,32 @@ class WaymoDataset(Dataset):
         index[index == 1000] = 0
         return index, mask
 
-    # TODO: not implemented
-    def traffic_process(self, traf):
-        # id_set = traf[-1,:,0]
-        return traf
+    def traffic_process(self, traf, lane_id):
+        id_set = traf[:, 0]
+        valid_traf = traf[:, -1] == 1
+        # traf_reshape = np.zeros([16, 11, 6])
+        # controlled_lanes = np.zeros([16, 9, 6])
+        lane_traf = np.zeros([MAX_LANE_NUM])
+        if valid_traf.sum() == 0:
+            #return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
+            return lane_traf
+
+        # id_set = id_set[valid_traf]
+        for index, id in enumerate(id_set):
+            ind = np.argwhere(lane_id == id)
+            if ind.shape[0]==0: continue
+            #controlled_lanes[index] = lane_vector[ind[0][0]]
+            lane_traf[ind[0][0]] = traf[index,-2]
+        return lane_traf
+
+        # for time in range(CURRENT + 1):
+        #     all_traf = traf[time, :, 0]
+        #     for index, id in enumerate(id_set):
+        #         pos = np.argwhere(all_traf == id)
+        #         if pos.shape[0]==0: continue
+        #         traf_reshape[index, time] = traf[time, pos[0][0]]
+        #
+        # return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
 
     def process(self, data):
         out = dict()
@@ -190,18 +211,18 @@ class WaymoDataset(Dataset):
         # gt
         # gt is nbrs ego-centric, which means prediction needed to be rotated in CaseVis
         out['gt'], out['gt_mask'] = self.gt_process(all_traj)
-        out['yaw'] = np.pad(all_traj[:, CURRENT, 5],[(0,MAX_AGENT_NUM-valid_agent_num)])
-        out['centroid'] = np.pad(all_traj[:, CURRENT, :2],[(0,MAX_AGENT_NUM-valid_agent_num),(0,0)])
+        out['yaw'] = np.pad(all_traj[:, CURRENT, 5], [(0, MAX_AGENT_NUM - valid_agent_num)])
+        out['centroid'] = np.pad(all_traj[:, CURRENT, :2], [(0, MAX_AGENT_NUM - valid_agent_num), (0, 0)])
 
         # extra info-------------------------------
         # lane info
-        out['lane_vector'], lane_num = self.lane_process(data['lane'])
+        out['lane_vector'], lane_num, lane_id = self.lane_process(data['lane'])
 
         # agents' adjacent lane index in the lane_vector, size=[agent_num,adj_lane_num]
         out['adj_index'], out['adj_mask'] = self.map_allocation(all_traj[..., CURRENT, :2], all_traj[..., CURRENT, 5],
                                                                 out['lane_vector'][:lane_num])
         # traffic light
-        # out['traf'] = self.traffic_process(data['traf_p_c_f'][:CURRENT+1])
+        out['traffic_light'] = self.traffic_process(data['traf_p_c_f'][CURRENT], lane_id)
 
         # trunk related----------------------#
         adj_lane_num = np.max(np.sum(out['adj_mask'], axis=1))
@@ -211,19 +232,20 @@ class WaymoDataset(Dataset):
         # predict list
         motion_list = data['tracks_to_predict'][current_valid_index]
         interaction_list = data['objects_of_interest'][current_valid_index]
-        out['tracks_to_predict'] =  np.pad(motion_list,[0,MAX_NBRS_NUM+1-valid_agent_num]).astype(bool)
-        out['objects_of_interest'] = np.pad(interaction_list,[0,MAX_NBRS_NUM+1-valid_agent_num]).astype(bool)
+        out['tracks_to_predict'] = np.pad(motion_list, [0, MAX_NBRS_NUM + 1 - valid_agent_num]).astype(bool)
+        out['objects_of_interest'] = np.pad(interaction_list, [0, MAX_NBRS_NUM + 1 - valid_agent_num]).astype(bool)
 
         # obj type
-        out['obj_type'] = np.pad(all_traj[:,CURRENT,9],(0,MAX_NBRS_NUM+1-valid_agent_num)).astype(int)
-        out['velocity'] = np.pad(all_traj[...,3:5],[(0,MAX_NBRS_NUM+1-valid_agent_num),(0,0),(0,0)])
-        out['agent_id'] = np.pad(all_traj[:,CURRENT,-1],(0,MAX_NBRS_NUM+1-valid_agent_num)).astype(int)
+        out['obj_type'] = np.pad(all_traj[:, CURRENT, 9], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
+        out['velocity'] = np.pad(all_traj[..., 3:5], [(0, MAX_NBRS_NUM + 1 - valid_agent_num), (0, 0), (0, 0)])
+        out['agent_id'] = np.pad(all_traj[:, CURRENT, -1], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
         try:
             out['state_id'] = str(data['id'][0], 'utf-8')
         except:
             pass
 
         return out
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -234,10 +256,12 @@ if __name__ == '__main__':
     dataset_cfg['cache'] = False
     dir = dataset_cfg['dataset_dir']
     cache_root = dir[:dir.find('trans')]
+
     periods = ['training', 'validation', 'testing','validation_interactive', 'testing_interactive']
     batch_size = 64
+
     for period in periods:
-        ds = WaymoDataset(dataset_cfg,period)
+        ds = WaymoDataset(dataset_cfg, period)
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=8)
         progress_bar = tqdm(loader)
         cnt = 0
