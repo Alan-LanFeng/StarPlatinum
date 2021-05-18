@@ -1,5 +1,4 @@
 from torch.utils.data import Dataset, DataLoader
-import os
 import pickle
 import numpy as np
 import argparse
@@ -175,15 +174,15 @@ class WaymoDataset(Dataset):
 
         for index, id in enumerate(id_set):
             ind = np.argwhere(lane_id == id)
-            if not ind: continue
-            controlled_lanes[index] = lane_vector[ind]
+            if ind.shape[0]==0: continue
+            controlled_lanes[index] = lane_vector[ind[0][0]]
 
         for time in range(CURRENT + 1):
             all_traf = traf[time, :, 0]
             for index, id in enumerate(id_set):
                 pos = np.argwhere(all_traf == id)
-                if not pos: continue
-                traf_reshape[index, time] = traf[time, pos]
+                if pos.shape[0]==0: continue
+                traf_reshape[index, time] = traf[time, pos[0][0]]
 
         return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
 
@@ -215,8 +214,9 @@ class WaymoDataset(Dataset):
         out['adj_index'], out['adj_mask'] = self.map_allocation(all_traj[..., CURRENT, :2], all_traj[..., CURRENT, 5],
                                                                 out['lane_vector'][:lane_num])
         # traffic light
-        out['traf'], out['traf_mask'], out['traffic_lane'] = self.traffic_process(data['traf_p_c_f'][:CURRENT + 1],
+        out['traffic_light'], out['traf_mask'], out['traffic_lane'] = self.traffic_process(data['traf_p_c_f'][:CURRENT + 1],
                                                                                   out['lane_vector'], lane_id)
+        out['raw_traf'] = data['traf_p_c_f'][:CURRENT + 1]
 
         # trunk related----------------------#
         adj_lane_num = np.max(np.sum(out['adj_mask'], axis=1))
