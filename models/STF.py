@@ -100,6 +100,10 @@ class STF(nn.Module):
         misc = data['misc'][:, :max_agent]
         misc = torch.gather(misc, 1, gather_list.view(*gather_list.shape, 1, 1).repeat(1,1,*misc.shape[-2:]))
 
+        centroid = data['centroid'][:, :max_agent]
+        gather_centroid = gather_list.unsqueeze(-1).repeat(1, 1, 2)
+        centroid = torch.gather(centroid, 1, gather_centroid)
+
         new_data = {
             'gt': gt,
             'gt_mask': gt_mask,
@@ -108,7 +112,8 @@ class STF(nn.Module):
             'agent_id': agent_id,
             'tracks_to_predict': gather_mask,
             'misc': misc,
-            'obj_type': obj_type
+            'obj_type': obj_type,
+            'centroid': centroid
         }
 
         outputs_coord, outputs_class = self.prediction_head(hist_out, obj_type)

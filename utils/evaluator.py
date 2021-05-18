@@ -135,13 +135,8 @@ class WODEvaluator(object):
                 score = score.detach()
 
                 predict_flag = new_data['tracks_to_predict']
-
-                # batch_size = predict_flag.shape[0]
-                # nbrs_gt = data['nbrs_groundtruth']
-                # target_y_mask = data['groundtruth_availabilities'].unsqueeze(1).float()
-                # nbrs_y_mask = nbrs_gt[:,:,:,2].view(batch_size,-1,80).float()
-                # y_mask = torch.cat([target_y_mask, nbrs_y_mask], dim=1)
-                # predict_flag = predict_flag * (y_mask.sum(-1) > 0)
+                yaw = new_data['misc'][..., 10, 4]
+                centroid = new_data['centroid']
 
                 interval = 5
 
@@ -151,14 +146,19 @@ class WODEvaluator(object):
 
                     pred = select(coord).permute(0, 2, 1, 3, 4).cumsum(
                         -2)  # batch_size, K, car_num, horizon, 2
-                    pred = pred[..., (interval - 1)::interval, :]
                     batch_size, K, car_num, horizon, c = pred.shape
                     if batch_size * car_num == 0:
                         continue
 
-                    # ego_misc = data['ego_groundtruth_misc'].unsqueeze(1)
-                    # nbrs_misc = data['nbrs_groundtruth_misc']
-                    # misc = select(torch.cat([ego_misc, nbrs_misc], dim=1))
+                    yaw = select(yaw)
+                    centroid = select(centroid)
+                    s, c = torch.sin(yaw), torch.cos(yaw)
+                    s, c = s.view(batch_size, 1, 1, 1), c.view(batch_size, 1, 1, 1)
+                    pred[..., 0], pred[..., 1] = c * pred[..., 0] - s * pred[..., 1], \
+                                                 s * pred[..., 0] + c * pred[..., 1]
+                    pred += centroid.view(batch_size, 1, 1, 1, 2)
+                    pred = pred[..., (interval - 1)::interval, :]
+
                     misc = select(new_data['misc'])
                     gt = misc[..., :7]
                     gt_is_valid = misc[..., 7] > 0
@@ -177,10 +177,6 @@ class WODEvaluator(object):
                     def select(x):
                         return x[predict_flag]
 
-                    pred = select(output['pred_coords']).permute(0, 2, 1, 3, 4).cumsum(-2)
-                    pred = pred[..., (interval - 1)::interval, :]
-                    batch_size, K, car_num, horizon, c = pred.shape
-                    score = output['pred_logits']
                     misc = select(new_data['misc'])
                     gt = misc[..., :7]
                     gt_is_valid = misc[..., 7] > 0
