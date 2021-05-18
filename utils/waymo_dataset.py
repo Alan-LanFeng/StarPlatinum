@@ -33,6 +33,7 @@ class WaymoDataset(Dataset):
         self.period = period
         self.path = os.path.join(self.root, period)
         self.cache = cfg['cache']
+        self.cache_name = cfg['cache_name']
         self.shrink = cfg['shrink']
 
     def __len__(self):
@@ -46,7 +47,7 @@ class WaymoDataset(Dataset):
     def __getitem__(self, index):
         if self.cache:
             cache_root = self.root[:self.root.find('trans')]
-            cache_file = os.path.join(cache_root, 'cache1', self.period, f'{index}.pkl')
+            cache_file = os.path.join(cache_root, self.cache_name, self.period, f'{index}.pkl')
             with open(cache_file, 'rb') as f:
                 data = pickle.load(f)
             return data
@@ -198,6 +199,10 @@ class WaymoDataset(Dataset):
         # traj
         data['ego_p_c_f'] = np.expand_dims(data['ego_p_c_f'], 0)
         all_traj = np.concatenate([data['ego_p_c_f'], data['nbrs_p_c_f']], 0)
+
+        misc_list = [0, 1, 6, 7, 5, 3, 4, 11, 12]
+        out['misc'] = all_traj[:, :, misc_list]
+
         current_valid_index = all_traj[..., CURRENT, -2] == 1
         valid_agent_num = sum(current_valid_index)
         all_traj = all_traj[current_valid_index]
@@ -251,8 +256,10 @@ if __name__ == '__main__':
     dataset_cfg['cache'] = False
     dir = dataset_cfg['dataset_dir']
     cache_root = dir[:dir.find('trans')]
-    periods = ['training', 'validation', 'testing', 'validation_interactive', 'testing_interactive']
-    batch_size = 16
+
+    periods = ['training', 'validation', 'testing','validation_interactive', 'testing_interactive']
+    batch_size = 64
+
     for period in periods:
         ds = WaymoDataset(dataset_cfg, period)
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=8)
@@ -261,11 +268,11 @@ if __name__ == '__main__':
         for data in progress_bar:
             try:
                 for k, v in data.items():
-                    data[k] = data[k].squeeze(0).numpy()
+                    data[k] = data[k].numpy()
             except:
                 pass
 
-            path_name = os.path.join(cache_root, 'cache1', period)
+            path_name = os.path.join(cache_root, dataset_cfg['cache_name'], period)
             if not os.path.exists(path_name):
                 os.makedirs(path_name)
             for i in range(batch_size):

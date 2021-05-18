@@ -783,8 +783,9 @@ class ChoiceHead(nn.Module):
         pred_class = torch.cat(pred_class, dim=-1)
         idx = idx - (idx > 0).int()
 
-        pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape, 1, 1, 1, 1).repeat(1, 1, 6, 80, 2, 1))
-        pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1, 1).repeat(1, 1, 6, 1))
+        k = pred_coord.shape[2]
+        pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape, 1, 1, 1, 1).repeat(1, 1, k, 80, 2, 1))
+        pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1, 1).repeat(1, 1, k, 1))
         pred_coord = pred_coord.squeeze(-1)
         pred_class = pred_class.squeeze(-1)
         return pred_coord, pred_class
