@@ -162,29 +162,32 @@ class WaymoDataset(Dataset):
         index[index == 1000] = 0
         return index, mask
 
-    def traffic_process(self, traf, lane_vector, lane_id):
-        id_set = traf[-1, :, 0]
-        valid_traf = traf[-1, :, -1] == 1
-        traf_reshape = np.zeros([16, 11, 6])
-        controlled_lanes = np.zeros([16, 9, 6])
-
+    def traffic_process(self, traf, lane_id):
+        id_set = traf[:, 0]
+        valid_traf = traf[:, -1] == 1
+        # traf_reshape = np.zeros([16, 11, 6])
+        # controlled_lanes = np.zeros([16, 9, 6])
+        lane_traf = np.zeros([MAX_LANE_NUM])
         if valid_traf.sum() == 0:
-            return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
-        id_set = id_set[valid_traf]
+            #return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
+            return lane_traf
 
+        # id_set = id_set[valid_traf]
         for index, id in enumerate(id_set):
             ind = np.argwhere(lane_id == id)
             if ind.shape[0]==0: continue
-            controlled_lanes[index] = lane_vector[ind[0][0]]
+            #controlled_lanes[index] = lane_vector[ind[0][0]]
+            lane_traf[ind[0][0]] = traf[index,-2]
+        return lane_traf
 
-        for time in range(CURRENT + 1):
-            all_traf = traf[time, :, 0]
-            for index, id in enumerate(id_set):
-                pos = np.argwhere(all_traf == id)
-                if pos.shape[0]==0: continue
-                traf_reshape[index, time] = traf[time, pos[0][0]]
-
-        return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
+        # for time in range(CURRENT + 1):
+        #     all_traf = traf[time, :, 0]
+        #     for index, id in enumerate(id_set):
+        #         pos = np.argwhere(all_traf == id)
+        #         if pos.shape[0]==0: continue
+        #         traf_reshape[index, time] = traf[time, pos[0][0]]
+        #
+        # return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
 
     def process(self, data):
         out = dict()
@@ -214,9 +217,7 @@ class WaymoDataset(Dataset):
         out['adj_index'], out['adj_mask'] = self.map_allocation(all_traj[..., CURRENT, :2], all_traj[..., CURRENT, 5],
                                                                 out['lane_vector'][:lane_num])
         # traffic light
-        out['traffic_light'], out['traf_mask'], out['traffic_lane'] = self.traffic_process(data['traf_p_c_f'][:CURRENT + 1],
-                                                                                  out['lane_vector'], lane_id)
-        out['raw_traf'] = data['traf_p_c_f'][:CURRENT + 1]
+        out['traffic_light'] = self.traffic_process(data['traf_p_c_f'][CURRENT], lane_id)
 
         # trunk related----------------------#
         adj_lane_num = np.max(np.sum(out['adj_mask'], axis=1))
