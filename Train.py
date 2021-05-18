@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume', action="store_true")
     parser.add_argument('--local', action="store_true")
     parser.add_argument('--cfg', type=str, default='0')
-    parser.add_argument('--model-name', type=str, default='defualt_model')
+    parser.add_argument('--model-name', type=str, default='default_model')
     args = parser.parse_args()
 
     cfg = load_config_data(f"./config/{args.cfg}.yaml")
