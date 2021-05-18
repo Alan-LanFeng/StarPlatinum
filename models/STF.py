@@ -71,16 +71,25 @@ class STF(nn.Module):
         # TODO: Traffic_light module
         # TODO: high-order interaction module
 
+        gather_list, new_data = self._gather_new_data(data, max_agent)
+
+        # gather hist out
+        gather_hist = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *hist_out.shape[-2:])
+        hist_out = torch.gather(hist_out, 1, gather_hist)
+
+        outputs_coord, outputs_class = self.prediction_head(hist_out, new_data['obj_type'])
+
+        return outputs_coord, outputs_class, new_data
+
+    def _gather_new_data(self, data, max_agent):
         # select predict list and gather needed data
         tracks_to_predict = data['tracks_to_predict'][:, :max_agent]
         gather_list, gather_mask = bool2index(tracks_to_predict)
         gather_list, gather_mask = gather_list[:, :self.max_pred_num], gather_mask[:, :self.max_pred_num]
-        # gather hist out
-        gather_hist = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *hist_out.shape[-2:])
-        hist_out = torch.gather(hist_out, 1, gather_hist)
         # gather obj type
         obj_type = data['obj_type'].to(torch.int64)[:, :max_agent]
         obj_type = torch.gather(obj_type, 1, gather_list)
+
         # gather other data
         gt = data['gt'][:, :max_agent]
         gather_gt = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *gt.shape[-2:])
@@ -116,6 +125,5 @@ class STF(nn.Module):
             'centroid': centroid
         }
 
-        outputs_coord, outputs_class = self.prediction_head(hist_out, obj_type)
+        return gather_list, new_data
 
-        return outputs_coord, outputs_class, new_data
