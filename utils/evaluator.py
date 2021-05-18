@@ -128,7 +128,10 @@ class WODEvaluator(object):
             cnt = [0, 0, 0]
             for i, data in enumerate(progress_bar):
                 for key in data.keys():
-                    data[key] = data[key].to(self.device)
+                    try:
+                        data[key] = data[key].to(self.device)
+                    except:
+                        pass
                 coord, score, new_data = model(data)
 
                 coord = coord.detach()
