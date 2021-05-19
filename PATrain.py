@@ -18,13 +18,13 @@ from utils.criterion import Loss
 
 class Canvas:
     def __init__(self, L, R, D, U):
-        self.L = L
-        self.R = R
-        self.D = D
-        self.U = U
+        self.L = L - 10
+        self.R = R + 10
+        self.D = D - 10
+        self.U = U + 10
         self.duration = 80
-        self.canvas = np.zeros([int(R - L) + 1, int(U - D) + 1])
-        self.dynamic_canvas = np.zeros([int(R - L) + 1, int(U - D) + 1, self.duration])
+        self.canvas = np.zeros([int(self.R - self.L) + 1, int(self.U - self.D) + 1])
+        self.dynamic_canvas = np.zeros([int(self.R - self.L) + 1, int(self.U - self.D) + 1, self.duration])
 
     def stash(self):
         self.tmp_canvas = self.canvas.copy()
@@ -94,6 +94,7 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
     lane_flat_y = lane[..., (1, 3)].view(lane.shape[0], -1)
     L, R = lane_flat_x.min(-1).values, lane_flat_x.max(-1).values
     D, U = lane_flat_y.min(-1).values, lane_flat_y.max(-1).values
+
     batch_size = coord.shape[0]
 
     yaw = ora_new_data['misc'][..., 10, 4]
@@ -105,6 +106,16 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
     ora_coord[..., 0], ora_coord[..., 1] = c * ora_coord[..., 0] - s * ora_coord[..., 1], \
                                            s * ora_coord[..., 0] + c * ora_coord[..., 1]
     ora_coord += center
+
+    plan_coord = coord[:, idx]
+    coord_x = plan_coord[..., 0].reshape(lane.shape[0], -1)
+    coord_y = plan_coord[..., 1].reshape(lane.shape[0], -1)
+    ora_coord_x = ora_coord[..., 0].reshape(lane.shape[0], -1)
+    ora_coord_y = ora_coord[..., 1].reshape(lane.shape[0], -1)
+    L, R = torch.min(L, coord_x.min(-1).values), torch.max(R, coord_x.max(-1).values)
+    D, U = torch.min(D, coord_y.min(-1).values), torch.max(U, coord_y.max(-1).values)
+    L, R = torch.min(L, ora_coord_x.min(-1).values), torch.max(R, ora_coord_x.max(-1).values)
+    D, U = torch.min(D, ora_coord_y.min(-1).values), torch.max(U, ora_coord_y.max(-1).values)
 
     for i in range(batch_size):
         canvas = Canvas(L[i], R[i], D[i], U[i])
@@ -125,9 +136,13 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
                 ora_pred = ora_pred.T.tolist()
                 canvas.draw(ora_pred[0][:-1], ora_pred[1][:-1], ora_pred[0][1:], ora_pred[1][1:], lambda x, y: 1.0, 2, True)
         canvas.flush()
-        canvas.to_image(i)
 
         # calculate pro-active proposal loss
+        plan_coord_cur = plan_coord[i].T.tolist()
+        canvas.stash()
+        canvas.draw(plan_coord_cur[0][:-1], plan_coord_cur[1][:-1], plan_coord_cur[0][1:], plan_coord_cur[1][1:], lambda x, y: 1.0, 5, True)
+        canvas.flush()
+        canvas.to_image(i)
 
 
 if __name__ == "__main__":
