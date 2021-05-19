@@ -1,94 +1,87 @@
 import torch.nn as nn
 import torch
 from models.utils import (
-    Encoder, EncoderLayer,
+    EncoderDecoder, Encoder, EncoderLayer,
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
-    LinearEmbedding, LaneNet
+    LinearEmbedding, PositionalEncoding,
 )
-from models.STF import STF
 import copy
 
 
-def bool2index(mask):
-    seq = torch.arange(mask.shape[-1]).to(mask.device)
-    index = mask * seq
-    index[mask == 0] = 1000
-    index = index.sort(-1).values.to(torch.int64)
-    mask = index < 1000
-    index[index == 1000] = 0
-    return index, mask
-
-
-class STF_lane(STF):
+class STF_pf(nn.Module):
     def __init__(self, cfg):
-        super(STF_lane, self).__init__(cfg)
-
+        super(STF_pf, self).__init__()
+        self.max_pred_num = cfg['max_pred_num']
+        # num of proposal
+        prop_num = cfg['prop_num']
         d_model = cfg['d_model']
         h = cfg['attention_head']
         dropout = cfg['dropout']
         N = cfg['model_layers_num']
+        traj_dims = cfg['traj_dims']
+        pos_dim = 64
 
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
+        position = PositionalEncoding(d_model, dropout)
 
-        # num of proposal
-        self.lanenet = LaneNet(
-            cfg['lane_dims'],
-            cfg['subgraph_width_unit'],
-            cfg['num_subgraph_layers'])
-        self.lane_emb = LinearEmbedding(cfg['subgraph_width_unit'] * 2, d_model)
-        self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-        self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
+        self.query_embed = nn.Embedding(prop_num, d_model)
+        self.query_embed.weight.requires_grad == False
+        nn.init.orthogonal_(self.query_embed.weight)
+
+        self.pos_emb = nn.Sequential(
+            nn.Linear(2, pos_dim, bias=True),
+            nn.LayerNorm(pos_dim),
+            nn.ReLU(),
+            nn.Linear(pos_dim, pos_dim, bias=True))
+
+        self.hist_tf = EncoderDecoder(
+            Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+            Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
+            nn.Sequential(LinearEmbedding(traj_dims, d_model), c(position))
+        )
+
+        self.fusion = nn.Sequential(
+            nn.Linear(d_model + pos_dim, d_model, bias=True),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model, bias=True))
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
-        max_lane = torch.max(valid_len[:, 1])
-        max_adj_lane = torch.max(valid_len[:, 2])
-        batch_size = valid_len.shape[0]
         # trajectory module
         hist = data['hist'][:, :max_agent]
+        center = hist[...,-1,2:]
 
+        hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
+        hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
-        self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
-                                                                                                       1, 1)
+        self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],                                                                                      1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
-
+        center = self.pos_emb(center)
+        hist_out = torch.cat([center.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion(hist_out)
         # TODO: lane module
-        lane = data['lane_vector'][:, :max_lane]
-        lane_enc = self.lanenet(lane)
-        lane_valid_len = data['valid_len'][:, 0]
-        lane_mask = torch.zeros((batch_size, 1, max_lane)).to(lane_enc.device)
-        for i in range(batch_size):
-            lane_mask[i, 0, :lane_valid_len[i]] = 1
-        lane_mem = self.lane_enc(self.lane_emb(lane_enc), lane_mask)
-        lane_mem = lane_mem.unsqueeze(1).repeat(1, max_agent, 1, 1)
-        adj_index = data['adj_index'][:, :max_agent, :max_lane]
-        adj_mask = data['adj_mask'][:, :max_agent, :max_lane]
-        adj_index = adj_index.unsqueeze(-1).repeat(1, 1, 1, 128)[:, :, :max_adj_lane]
-        adj_mask = adj_mask.unsqueeze(2)[:, :, :, :max_adj_lane]
-        lane_mem = torch.gather(lane_mem, dim=-2, index=adj_index)
-        lane_out = self.lane_dec(hist_out, lane_mem, adj_mask, None)
-
         # TODO: Traffic_light module
         # TODO: high-order interaction module
 
         gather_list, new_data = self._gather_new_data(data, max_agent)
 
-        # gather lane out
-        gather_lane = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *lane_out.shape[-2:])
-        lane_out = torch.gather(lane_out, 1, gather_lane)
+        # gather hist out
+        gather_hist = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *hist_out.shape[-2:])
+        hist_out = torch.gather(hist_out, 1, gather_hist)
 
-        outputs_coord, outputs_class = self.prediction_head(lane_out, new_data['obj_type'])
+        outputs_coord, outputs_class = self.prediction_head(hist_out, new_data['obj_type'])
 
         return outputs_coord, outputs_class, new_data
 
     def _gather_new_data(self, data, max_agent):
         # select predict list and gather needed data
         tracks_to_predict = data['tracks_to_predict'][:, :max_agent]
-        gather_list, gather_mask = bool2index(tracks_to_predict)
+        gather_list, gather_mask = self._bool2index(tracks_to_predict)
         gather_list, gather_mask = gather_list[:, :self.max_pred_num], gather_mask[:, :self.max_pred_num]
         # gather obj type
         obj_type = data['obj_type'].to(torch.int64)[:, :max_agent]
@@ -101,6 +94,7 @@ class STF_lane(STF):
         gt_mask = data['gt_mask'][:, :max_agent]
         gather_gt_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, gt_mask.shape[-1])
         gt_mask = torch.gather(gt_mask, 1, gather_gt_mask)
+
         misc = data['misc'][:, :max_agent]
         misc = torch.gather(misc, 1, gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *misc.shape[-2:]))
 
@@ -116,5 +110,13 @@ class STF_lane(STF):
             'obj_type': obj_type,
             'centroid': centroid
         }
-
         return gather_list, new_data
+
+    def _bool2index(self, mask):
+        seq = torch.arange(mask.shape[-1]).to(mask.device)
+        index = mask * seq
+        index[mask == 0] = 1000
+        index = index.sort(-1).values.to(torch.int64)
+        mask = index < 1000
+        index[index == 1000] = 0
+        return index, mask

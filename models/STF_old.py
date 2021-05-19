@@ -5,14 +5,14 @@ from models.utils import (
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
     LinearEmbedding, PositionalEncoding,
-    newChoiceHead
+    ChoiceHead
 )
 import copy
 
 
-class STF(nn.Module):
+class STF_old(nn.Module):
     def __init__(self, cfg):
-        super(STF, self).__init__()
+        super(STF_old, self).__init__()
         self.max_pred_num = cfg['max_pred_num']
         # num of proposal
         prop_num = cfg['prop_num']
@@ -37,7 +37,7 @@ class STF(nn.Module):
             Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
             nn.Sequential(LinearEmbedding(traj_dims, d_model), c(position))
         )
-        self.prediction_head = newChoiceHead(d_model, dec_out_size, dropout)
+        self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
 
     def forward(self, data: dict):
         valid_len = data['valid_len']

@@ -1,16 +1,16 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF'
+model_name: 'STF_rg_ts'
 track: 'motion'
 
 # dataset related
 dataset_cfg:
   cache: True
   cache_name: 'cache1'
-  shrink: False
+  shrink: True
   dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
-  #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
+  dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
   batch_size: 64
   num_workers: 4
@@ -18,7 +18,7 @@ dataset_cfg:
 # model related
 model_cfg:
   #vector net related
-  lane_dims: 6
+  lane_dims: 7
   traj_dims: 4
   out_dims: 160
   subgraph_width_unit: 32
