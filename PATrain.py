@@ -36,15 +36,26 @@ class Canvas:
         self.canvas += self.tmp_canvas
         self.dynamic_canvas += self.tmp_dynamic_canvas
 
-    def _draw_dot(self, x, y, value, idx, dynamic):
+    def _draw_dot(self, x, y, value, idx, style, dynamic):
         cx = int(x - self.L)
         cy = int(y - self.D)
-        if not dynamic:
-            self.canvas[cx, cy] = max(value, self.canvas[cx, cy])
+        if not style:
+            if not dynamic:
+                self.canvas[cx, cy] = max(value, self.canvas[cx, cy])
+            else:
+                self.dynamic_canvas[cx, cy, idx] = max(value, self.dynamic_canvas[cx, cy, idx])
         else:
-            self.dynamic_canvas[cx, cy, idx] = max(value, self.dynamic_canvas[cx, cy, idx])
+            r = style
+            for i in range(2 * r + 1):
+                for j in range(2 * r + 1):
+                    dx, dy = i - r, j-r
+                    dist = abs(dx) + abs(dy)
+                    if not dynamic:
+                        self.canvas[cx+dx, cy+dy] = max(value * (2*r-dist) / (2*r), self.canvas[cx+dx, cy+dy])
+                    else:
+                        self.dynamic_canvas[cx+dx, cy+dy, idx] = max(value * (2*r-dist) / (2*r), self.dynamic_canvas[cx+dx, cy+dy, idx])
 
-    def _draw_line(self, x0, y0, x1, y1, value_f, idx, dynamic, k=2):
+    def _draw_line(self, x0, y0, x1, y1, value_f, idx, style, dynamic, k=2):
         length = ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5
         interval_num = max(int(length * k), 1)
         dx = (x1 - x0) / interval_num
@@ -52,14 +63,14 @@ class Canvas:
         for i in range(interval_num):
             _x = x0 + dx * i
             _y = y0 + dy * i
-            self._draw_dot(_x, _y, value_f(_x, _y), idx, dynamic)
+            self._draw_dot(_x, _y, value_f(_x, _y), idx, style, dynamic)
 
-    def draw(self, xist0, yist0, xist1, yist1, value_f, dynamic=False):
+    def draw(self, xist0, yist0, xist1, yist1, value_f, style=None, dynamic=False):
         # x: list of x-coordinates
         # y: list of y-coordinates
         # value_f: lambda function
         for i, (x0, y0, x1, y1) in enumerate(zip(xist0, yist0, xist1, yist1)):
-            self._draw_line(x0, y0, x1, y1, value_f, i, dynamic)
+            self._draw_line(x0, y0, x1, y1, value_f, i, style, dynamic)
 
     def to_image(self, name):
         img = Image.fromarray(self.canvas * 256).convert('L')
@@ -71,7 +82,8 @@ class Canvas:
         height = self.canvas.shape[0]
         video = cv2.VideoWriter(f'./canvas/{name}.mp4', fourcc, float(fps), (width, height), False)
         for i in range(self.duration):
-            content = (self.canvas + self.dynamic_canvas[..., i])*255
+            content = (self.canvas + self.dynamic_canvas[..., i])*256
+            content[content>255] = 255
             video.write(content.astype(np.uint8))
         video.release()
 
@@ -111,7 +123,7 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
                 # build cost map with ora-COORD
                 ora_pred = ora_coord[i, j, k]
                 ora_pred = ora_pred.T.tolist()
-                canvas.draw(ora_pred[0][:-1], ora_pred[1][:-1], ora_pred[0][1:], ora_pred[1][1:], lambda x, y: 1.0, True)
+                canvas.draw(ora_pred[0][:-1], ora_pred[1][:-1], ora_pred[0][1:], ora_pred[1][1:], lambda x, y: 1.0, 2, True)
         canvas.flush()
         canvas.to_image(i)
 
