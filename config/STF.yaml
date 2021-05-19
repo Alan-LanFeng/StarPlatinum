@@ -40,11 +40,6 @@ train_cfg:
   decay_rate: 0.2
   max_norm_gradient: 0.1
 
-eval_cfg:
-  shuffle: False
-  batch_size: 8
-  num_workers: 2
-
 # loss related
 loss_cfg:
   K: 100

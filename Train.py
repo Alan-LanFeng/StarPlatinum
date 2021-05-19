@@ -11,6 +11,7 @@ from utils.evaluator import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
+import pickle
 # =========================evaluation======================================
 from torch.autograd import Variable
 
@@ -26,6 +27,43 @@ if __name__ == "__main__":
 
     cfg = load_config_data(f"./config/{args.cfg}.yaml")
     device = 'cpu' if args.local else 'cuda'
+
+    # check if there's cache
+    dataset_cfg = cfg['dataset_cfg']
+    dir = dataset_cfg['dataset_dir']
+    cache_root = dir[:dir.find('trans')]
+    cache_path = os.path.join(cache_root, dataset_cfg['cache_name'])
+    if not os.path.exists(cache_path):
+        print('starting cache')
+        dataset_cfg['cache'] = False
+        periods = ['training', 'validation', 'testing', 'validation_interactive', 'testing_interactive']
+        batch_size = dataset_cfg['batch_size']
+        for period in periods:
+            ds = WaymoDataset(dataset_cfg, period)
+            loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=dataset_cfg['num_workers'])
+            progress_bar = tqdm(loader)
+            cnt = 0
+            for data in progress_bar:
+                try:
+                    for k, v in data.items():
+                        data[k] = data[k].numpy()
+                except:
+                    pass
+                path_name = os.path.join(cache_root, dataset_cfg['cache_name'], period)
+                if not os.path.exists(path_name):
+                    os.makedirs(path_name)
+                for i in range(batch_size):
+                    cache_file = os.path.join(path_name, f'{cnt}.pkl')
+
+                    if not os.path.exists(cache_file):
+                        os.mknod(cache_file)
+                    try:
+                        with open(cache_file, 'wb') as f:
+                            pickle.dump({k: v[i] for k, v in data.items()}, f)
+                    except:
+                        pass
+                    cnt += 1
+    print("using existing cache")
 
     # print(cfg)
     if device == 'cpu':
@@ -47,7 +85,7 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
     # ================================evaluation Method==========================================
-    evaluator = WODEvaluator(cfg, device, gpu_num)
+    evaluator = WODEvaluator(cfg, device)
     # =================================== INIT Model ============================================================
     model = load_model_class(cfg['model_name'])
     model_cfg = cfg['model_cfg']
@@ -117,9 +155,10 @@ if __name__ == "__main__":
             cnt += 1
 
         scheduler.step()
-        eval_dict = evaluator.evaluate(model)
-        for k, v in eval_dict.items():
-            writer.add_scalar(k, v, cnt)
+        if cnt%5 == 0:
+            eval_dict = evaluator.evaluate(model)
+            for k, v in eval_dict.items():
+                writer.add_scalar(k, v, cnt)
 
         # save after every epoch
         if not os.path.exists('./saved_models/'):
