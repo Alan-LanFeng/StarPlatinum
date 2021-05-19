@@ -359,11 +359,18 @@ class GeneratorWithProbilities(nn.Module):
         #                 nn.LayerNorm(cls_h_dim*2),
         #                 nn.ReLU(),
         #                 nn.Linear(cls_h_dim*2, cls_h_dim),)
-        self.classification_layer = nn.Sequential(
-            nn.Linear(d_model, cls_h_dim, bias=True),
-            nn.LayerNorm(cls_h_dim),
+        # self.classification_layer = nn.Sequential(
+        #     nn.Linear(d_model, cls_h_dim, bias=True),
+        #     nn.LayerNorm(cls_h_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(cls_h_dim, 1, bias=True),
+        #     nn.Sigmoid())
+        self.cls_mlp = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim*2, bias=True),
+            nn.LayerNorm(reg_h_dim*2),
             nn.ReLU(),
-            nn.Linear(cls_h_dim, 1, bias=True),
+            nn.Linear(reg_h_dim*2, reg_h_dim, bias=True),
+            nn.Linear(reg_h_dim, 1, bias=True),
             nn.Sigmoid())
         # self.cls_emb_layer = SublayerConnection(dis_h_dim+d_model, dropout)
         # self.cls_opt = nn.Sigmoid()
@@ -373,10 +380,10 @@ class GeneratorWithProbilities(nn.Module):
         pred = self.reg_mlp(x)
         pred = pred.view(*pred.shape[0:3], -1, 2)  # .cumsum(dim=-2)
         # return pred
-        cls_h = self.cls_FFN(x)
-        cls_h = self.classification_layer(cls_h).squeeze(dim=-1)
+        # cls_h = self.cls_FFN(x)
+        # cls_h = self.classification_layer(cls_h).squeeze(dim=-1)
         # conf = self.cls_opt(cls_h)
-        conf = cls_h
+        conf = self.cls_mlp(x).squeeze(dim=-1)
         return pred, conf
 
 
