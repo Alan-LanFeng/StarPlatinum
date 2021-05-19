@@ -122,7 +122,7 @@ if __name__ == "__main__":
         model.train()
         print(f'{epoch + 1}/{max_epoch} start at ' +
               time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
-        smoothed_loss, save_model_step, total_miss_rate = 0, 0, 0
+
         progress_bar = tqdm(train_dataloader)
         for j, data in enumerate(progress_bar):
             # Checking data preprocess
@@ -140,12 +140,12 @@ if __name__ == "__main__":
                 model.parameters(), max_norm=train_cfg['max_norm_gradient'])
             optimizer.step()
             # * Display the results.
-            total_miss_rate = (j * total_miss_rate + miss_rate) / (j + 1)
+
 
             losses_text = ''
             for loss_name in losses:
                 losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
-            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, total_miss_rate * 100))
+            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, miss_rate * 100))
 
             log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
                         'MR': miss_rate}

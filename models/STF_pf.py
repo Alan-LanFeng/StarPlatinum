@@ -5,6 +5,7 @@ from models.utils import (
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
     LinearEmbedding, PositionalEncoding,
+    ChoiceHead
 )
 import copy
 
@@ -48,6 +49,7 @@ class STF_pf(nn.Module):
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
+        self.prediction_head = ChoiceHead(d_model, 160, dropout)
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
