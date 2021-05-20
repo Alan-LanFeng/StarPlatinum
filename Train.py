@@ -79,6 +79,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
+    dataset_cfg['cache'] = True
     train_dataset = WaymoDataset(dataset_cfg, 'training')
     print('len:', len(train_dataset))
 
