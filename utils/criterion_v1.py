@@ -29,10 +29,12 @@ class Loss(torch.nn.Module):
         dis_mat, in_mask, valid_class = self.calDist(pred_endpoint, gt_end_point, gt_valid_len, data['misc'])
         index = torch.argmin(dis_mat, dim=-1)  # [batch, nbrs_num+1, 1]
 
+        cls_target = torch.zeros_like(conf).to(conf.device).scatter_(-1,index.unsqueeze(-1),1)
+
         tracks_to_predict = data['tracks_to_predict']
         valid_class = valid_class*tracks_to_predict
         #cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat)  # Margin Loss
-        cls_loss = self.crossEntropyLoss(conf,in_mask,valid_class)
+        cls_loss = self.crossEntropyLoss(conf,cls_target,valid_class)
         reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask)  # Huber Loss
 
         in_mask = in_mask.sum(dim=-1).to(bool)
