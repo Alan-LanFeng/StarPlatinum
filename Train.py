@@ -156,10 +156,10 @@ if __name__ == "__main__":
             cnt += 1
 
         scheduler.step()
-        if cnt%5 == 1:
-            eval_dict = evaluator.evaluate(model)
-            for k, v in eval_dict.items():
-                writer.add_scalar(k, v, cnt)
+
+        eval_dict = evaluator.evaluate(model)
+        for k, v in eval_dict.items():
+            writer.add_scalar(k, v, cnt)
 
         # save after every epoch
         if not os.path.exists('./saved_models/'):

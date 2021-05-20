@@ -31,8 +31,8 @@ class Loss(torch.nn.Module):
 
         tracks_to_predict = data['tracks_to_predict']
         valid_class = valid_class*tracks_to_predict
-        #cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat)  # Margin Loss
-        cls_loss = self.crossEntropyLoss(conf,in_mask,valid_class)
+        cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat)  # Margin Loss
+        #cls_loss = self.crossEntropyLoss(conf,in_mask,valid_class)
         reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask)  # Huber Loss
 
         in_mask = in_mask.sum(dim=-1).to(bool)
