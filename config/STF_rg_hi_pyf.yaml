@@ -1,12 +1,13 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF_rg_hi'
+model_name: 'STF_rg_hi_pyf'
 track: 'motion'
+
 # dataset related
 dataset_cfg:
   cache: True
-  cache_name: cache1
+  cache_name: 'cache1'
   shrink: False
   dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
   #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
@@ -38,11 +39,6 @@ train_cfg:
   lr_decay_per_epoch: 15
   decay_rate: 0.2
   max_norm_gradient: 0.1
-
-eval_cfg:
-  shuffle: False
-  batch_size: 8
-  num_workers: 2
 
 # loss related
 loss_cfg:
