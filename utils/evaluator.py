@@ -1,9 +1,5 @@
-import os, sys
-import time
-
-import numpy as np
+import os
 import torch
-import torch.nn as nn
 import tensorflow as tf
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -45,14 +41,13 @@ class suppress_stdout_stderr(object):
             os.close(fd)
 
 class WODEvaluator(object):
-    def __init__(self, cfg, device, gpu_num):
-
-        self.val_cfg = cfg['eval_cfg']
-        val_dataset = WaymoDataset(cfg['dataset_cfg'], 'validation')
+    def __init__(self, cfg, device):
+        dataset_cfg = cfg['dataset_cfg']
+        val_dataset = WaymoDataset(dataset_cfg, 'validation')
         self.val_dataloader = DataLoader(val_dataset,
-                                         shuffle=self.val_cfg['shuffle'],
-                                         batch_size=self.val_cfg['batch_size'] * gpu_num if device != 'cpu' else 4,
-                                         num_workers=self.val_cfg['num_workers'],
+                                         shuffle=dataset_cfg['shuffle'],
+                                         batch_size=dataset_cfg['batch_size'] if device != 'cpu' else 4,
+                                         num_workers=dataset_cfg['num_workers'],
                                          collate_fn=None)
         self.best_miss_rate = 1.0
         self.device = device

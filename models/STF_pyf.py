@@ -10,9 +10,9 @@ from models.utils import (
 import copy
 
 
-class STF(nn.Module):
+class STF_pyf(nn.Module):
     def __init__(self, cfg):
-        super(STF, self).__init__()
+        super(STF_pyf, self).__init__()
         self.max_pred_num = cfg['max_pred_num']
         # num of proposal
         prop_num = cfg['prop_num']
@@ -21,7 +21,7 @@ class STF(nn.Module):
         dropout = cfg['dropout']
         N = cfg['model_layers_num']
         traj_dims = cfg['traj_dims']
-        dec_out_size = cfg['out_dims']
+        pos_dim = 64
 
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
@@ -32,24 +32,45 @@ class STF(nn.Module):
         self.query_embed.weight.requires_grad == False
         nn.init.orthogonal_(self.query_embed.weight)
 
+        self.pos_emb = nn.Sequential(
+            nn.Linear(3, pos_dim, bias=True),
+            nn.LayerNorm(pos_dim),
+            nn.ReLU(),
+            nn.Linear(pos_dim, pos_dim, bias=True))
+
         self.hist_tf = EncoderDecoder(
             Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
             Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
             nn.Sequential(LinearEmbedding(traj_dims, d_model), c(position))
         )
-        self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
+
+        self.fusion = nn.Sequential(
+            nn.Linear(d_model + pos_dim, d_model, bias=True),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model, bias=True))
+        self.prediction_head = ChoiceHead(d_model, 160, dropout)
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
         # trajectory module
         hist = data['hist'][:, :max_agent]
+        center = hist[...,-1,2:]
+        yaw = data['misc'][:,:max_agent,10,4]
+        pos = torch.cat([center,yaw.unsqueeze(-1)],-1)
+
+        hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
+        hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
+        hist[...,:2] = self._rotate(hist[...,:2],yaw)
+        hist[...,2:4] = self._rotate(hist[...,2:4],yaw)
 
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
-        self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
-                                                                                                       1, 1)
+        self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],                                                                                      1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
-
+        pos = self.pos_emb(pos)
+        hist_out = torch.cat([pos.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion(hist_out)
         # TODO: lane module
         # TODO: Traffic_light module
         # TODO: high-order interaction module
@@ -106,3 +127,8 @@ class STF(nn.Module):
         mask = index < 1000
         index[index == 1000] = 0
         return index, mask
+
+    def _rotate(self, vec, yaw):
+        c, s = torch.cos(yaw).unsqueeze(-1).repeat(1, 1, vec.shape[-2]), torch.sin(yaw).unsqueeze(-1).repeat(1, 1, vec.shape[-2])
+        vec[..., 0], vec[..., 1] = c * vec[..., 0] + s * vec[..., 1], -s * vec[..., 0] + c * vec[..., 1]
+        return vec

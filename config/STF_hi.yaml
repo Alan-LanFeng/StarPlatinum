@@ -1,7 +1,7 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF_traf'
+model_name: 'STF_hi'
 track: 'motion'
 
 # dataset related
@@ -18,7 +18,7 @@ dataset_cfg:
 # model related
 model_cfg:
   #vector net related
-  lane_dims: 7
+  lane_dims: 6
   traj_dims: 4
   out_dims: 160
   subgraph_width_unit: 32
