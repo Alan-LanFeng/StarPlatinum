@@ -10,7 +10,7 @@ from utils.waymo_dataset import WaymoDataset
 from utils.evaluator import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
-from utils.old_criterion import Loss
+from utils.criterion import Loss
 import pickle
 # =========================evaluation======================================
 from torch.autograd import Variable
