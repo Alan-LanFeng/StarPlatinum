@@ -1,7 +1,10 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF'
+vanilla_model_name: 'STF'
+vanilla_ckpt: 'vanilla_1'
+oracle_model_name: 'STF_oracle'
+oracle_ckpt: 'oracle_1'
 track: 'motion'
 
 # dataset related
@@ -12,7 +15,7 @@ dataset_cfg:
   dataset_dir: '/data/uncompressed/trans'
   # dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
   shuffle: True
-  batch_size: 8
+  batch_size: 4
   num_workers: 0
 
 # model related

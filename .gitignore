@@ -12,6 +12,7 @@
 /result_h5
 *.pkl
 *.png
+*.mp4
 *.zarr
 *.pyc
 *.pt

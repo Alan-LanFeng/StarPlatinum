@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume', action="store_true")
     parser.add_argument('--local', action="store_true")
     parser.add_argument('--cfg', type=str, default='0')
-    parser.add_argument('--model-name', type=str, default='defualt_model')
+    parser.add_argument('--model-name', type=str, default='default_model')
     args = parser.parse_args()
 
     cfg = load_config_data(f"./config/{args.cfg}.yaml")
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     # =================================== INIT Model ============================================================
     model = load_model_class(cfg['model_name'])
     model_cfg = cfg['model_cfg']
-    model = model(model_cfg)
+    model = model(model_cfg, device)
 
     train_cfg = cfg['train_cfg']
     optimizer = optim.AdamW(model.parameters(), lr=train_cfg['lr'], betas=(0.9, 0.999), eps=1e-09,
