@@ -72,6 +72,16 @@ class Canvas:
         for i, (x0, y0, x1, y1) in enumerate(zip(xist0, yist0, xist1, yist1)):
             self._draw_line(x0, y0, x1, y1, value_f, i, style, dynamic)
 
+    def collect_loss(self, coord):
+        # coord: 80, 2
+        canvas = self.canvas[..., np.newaxis] + self.dynamic_canvas
+        canvas = torch.from_numpy(canvas.reshape(-1, 80))
+        x = (coord[:, 0] - self.L).type(torch.int64)
+        y = (coord[:, 1] - self.D).type(torch.int64)
+        idx = (x*int(self.U-self.D+1) + y).unsqueeze(0).detach().cpu()
+        loss_sum = torch.gather(canvas, index=idx, dim=0).sum()
+        return loss_sum
+
     def to_image(self, name):
         img = Image.fromarray(self.canvas * 256).convert('L')
         img.save(f'./canvas/background-{name}.png')
@@ -88,7 +98,7 @@ class Canvas:
         video.release()
 
 
-def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_new_data):
+def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_new_data, log=False):
     lane = data['lane_vector']  # batch_size, max_lane_num, 9, 6
     lane_flat_x = lane[..., (0, 2)].view(lane.shape[0], -1)
     lane_flat_y = lane[..., (1, 3)].view(lane.shape[0], -1)
@@ -117,6 +127,7 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
     L, R = torch.min(L, ora_coord_x.min(-1).values), torch.max(R, ora_coord_x.max(-1).values)
     D, U = torch.min(D, ora_coord_y.min(-1).values), torch.max(U, ora_coord_y.max(-1).values)
 
+    losses = []
     for i in range(batch_size):
         canvas = Canvas(L[i], R[i], D[i], U[i])
         # 1. build cost map with LANE INFO
@@ -138,11 +149,11 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
         canvas.flush()
 
         # calculate pro-active proposal loss
-        plan_coord_cur = plan_coord[i].T.tolist()
-        canvas.stash()
-        canvas.draw(plan_coord_cur[0][:-1], plan_coord_cur[1][:-1], plan_coord_cur[0][1:], plan_coord_cur[1][1:], lambda x, y: 1.0, 5, True)
-        canvas.flush()
-        canvas.to_image(i)
+        collected_loss = canvas.collect_loss(plan_coord[i])
+        losses.append(collected_loss)
+        if log:
+            canvas.to_image(i)
+    return losses
 
 
 if __name__ == "__main__":
@@ -171,19 +182,17 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
-    train_dataset = WaymoDataset(dataset_cfg, 'testing')
+    train_dataset = WaymoDataset(dataset_cfg, 'validation')
     print('len:', len(train_dataset))
 
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
-    # ================================evaluation Method==========================================
-    evaluator = WODEvaluator(cfg, device, gpu_num)
     # =================================== INIT Model ============================================================
     vanilla_model = load_model_class(cfg['vanilla_model_name'])
     model_cfg = cfg['model_cfg']
-    vanilla_model = vanilla_model(model_cfg, device)
+    vanilla_model = vanilla_model(model_cfg)
     oracle_model = load_model_class(cfg['oracle_model_name'])
-    oracle_model = oracle_model(model_cfg, device)
+    oracle_model = oracle_model(model_cfg)
 
     if not args.local:
         vanilla_model = torch.nn.DataParallel(vanilla_model, list(range(gpu_num)))
@@ -210,6 +219,8 @@ if __name__ == "__main__":
     vanilla_model.eval()
     oracle_model.eval()
     progress_bar = tqdm(train_dataloader)
+    loss_cmr_total = 0
+    pred_cmr_total = 0
     for j, data in enumerate(progress_bar):
         for key in data.keys():
             if isinstance(data[key], torch.DoubleTensor):
@@ -219,6 +230,7 @@ if __name__ == "__main__":
 
         ego_index = 0
         coord, score, new_data = vanilla_model(data)
+
         coord = coord[:, ego_index]
         misc = new_data['misc']
         yaw = new_data['misc'][..., ego_index, 10, 4]
@@ -228,12 +240,23 @@ if __name__ == "__main__":
         centroid = new_data['centroid'][:, ego_index]
         centroid = centroid.view(*yaw.shape, 1, 1, 2)
         coord = coord.cumsum(-2) + centroid
-
+        batch_size = coord.shape[0]
+        losses = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
         for k in range(cfg['model_cfg']['prop_num']):
             ego_future_path = coord[:, k]
             data['misc'][:, 0, 11:, :2] = ego_future_path
             data['misc'][:, 0, 11:, -2].fill_(1)
 
             ora_coord, ora_score, ora_new_data = oracle_model(data)
-            loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
-            assert 1 == 0
+            loss = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
+            losses[:, k] = torch.tensor(loss)
+        loss_idx = losses.min(dim=-1).indices
+        pred_idx = score[:, 0, :].min(dim=-1).indices.cpu()
+        dist = new_data['gt'][:, ego_index, -1, :].unsqueeze(1) - coord[:, :, -1]
+        dist = torch.norm(dist, dim=-1, p=2)
+        gt_idx = dist.min(dim=-1).indices.cpu()
+        loss_cmr = (loss_idx == gt_idx).sum()
+        pred_cmr = (pred_idx == gt_idx).sum()
+        loss_cmr_total += loss_cmr
+        pred_cmr_total += pred_cmr
+        progress_bar.set_description(desc='loss_CMR: %.3f, perd_CMR: %.3f' % (float(loss_cmr_total)/(j+1)/batch_size, float(pred_cmr_total)/(j+1)/batch_size))
