@@ -250,13 +250,14 @@ if __name__ == "__main__":
             ora_coord, ora_score, ora_new_data = oracle_model(data)
             loss = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
             losses[:, k] = torch.tensor(loss)
-        loss_idx = losses.min(dim=-1).indices
-        pred_idx = score[:, 0, :].min(dim=-1).indices.cpu()
+        loss_idx = losses.argsort(dim=-1)
+        pred_idx = score[:, 0, :].argsort(dim=-1).cpu()
         dist = new_data['gt'][:, ego_index, -1, :].unsqueeze(1) - coord[:, :, -1]
         dist = torch.norm(dist, dim=-1, p=2)
-        gt_idx = dist.min(dim=-1).indices.cpu()
-        loss_cmr = (loss_idx == gt_idx).sum()
-        pred_cmr = (pred_idx == gt_idx).sum()
+        gt_idx = dist.argsort(dim=-1).cpu()
+        topk = 6
+        loss_cmr = (loss_idx == gt_idx)[:, :topk].sum()
+        pred_cmr = (pred_idx == gt_idx)[:, :topk].sum()
         loss_cmr_total += loss_cmr
         pred_cmr_total += pred_cmr
-        progress_bar.set_description(desc='loss_CMR: %.3f, perd_CMR: %.3f' % (float(loss_cmr_total)/(j+1)/batch_size, float(pred_cmr_total)/(j+1)/batch_size))
+        progress_bar.set_description(desc='pro_CMR: %.3f, perd_CMR: %.3f' % (float(loss_cmr_total)/(j+1)/batch_size/topk, float(pred_cmr_total)/(j+1)/batch_size/topk))
