@@ -1,0 +1,45 @@
+# Config format schema number
+format_version: 4
+
+model_name: 'STF_rg_hi_pyf_v1'
+track: 'motion'
+
+# dataset related
+dataset_cfg:
+  cache: True
+  cache_name: 'cache1'
+  shrink: False
+  dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
+  dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
+  shuffle: True
+  batch_size: 64
+  num_workers: 8
+
+# model related
+model_cfg:
+  #vector net related
+  lane_dims: 6
+  traj_dims: 4
+  out_dims: 160
+  subgraph_width_unit: 32
+  num_subgraph_layers: 2
+  enc_dims:
+
+  prop_num: 6
+  d_model: 128
+  attention_head: 2
+  dropout: 0.0
+  model_layers_num: 2
+  max_pred_num: 8
+
+# training related
+train_cfg:
+  lr: 0.0003
+  weight_decay: 0.0004
+  lr_decay_per_epoch: 15
+  decay_rate: 0.2
+  max_norm_gradient: 0.1
+
+# loss related
+loss_cfg:
+  K: 100

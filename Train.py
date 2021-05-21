@@ -90,7 +90,7 @@ if __name__ == "__main__":
     # =================================== INIT Model ============================================================
     model = load_model_class(cfg['model_name'])
     model_cfg = cfg['model_cfg']
-    model = model(model_cfg, device)
+    model = model(model_cfg)
 
     train_cfg = cfg['train_cfg']
     optimizer = optim.AdamW(model.parameters(), lr=train_cfg['lr'], betas=(0.9, 0.999), eps=1e-09,
