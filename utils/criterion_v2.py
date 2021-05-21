@@ -1,4 +1,5 @@
 import torch
+
 eps = 1e-9
 
 
@@ -23,21 +24,65 @@ class Loss(torch.nn.Module):
                                      index=gt_valid_len.reshape(*gt_valid_len.shape, 1, 1, 1).repeat(1, 1,
                                                                                                      pred.shape[2], 1,
                                                                                                      2)).squeeze(-2)
-        dis_mat = torch.norm((gt_end_point - pred_endpoint), p=2, dim=-1)  # [batch, nbrs_num+1, K] #TODO fix this
+
+        #dis_mat = torch.norm((gt_end_point - pred_endpoint), p=2, dim=-1)  # [batch, nbrs_num+1, K]
+        dis_mat, in_mask, valid_class = self.calDist(pred_endpoint, gt_end_point, gt_valid_len, data['misc'])
         index = torch.argmin(dis_mat, dim=-1)  # [batch, nbrs_num+1, 1]
 
         tracks_to_predict = data['tracks_to_predict']
-        cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat)  # Margin Loss
-
+        valid_class = valid_class*tracks_to_predict
+        #cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat)  # Margin Loss
+        cls_loss = self.crossEntropyLoss(conf,in_mask,valid_class)
         reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask)  # Huber Loss
 
-        miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint)
+        in_mask = in_mask.sum(dim=-1).to(bool)
+        mr = 1-(in_mask*valid_class).sum()/valid_class.sum().float()
+        #miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint)
 
         losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss}
 
         loss = self.K * reg_loss + cls_loss
 
-        return loss, losses, miss_rate
+        return loss, losses, mr
+
+    def crossEntropyLoss(self,conf,in_mask,valid_class):
+
+        loss = torch.nn.BCELoss(reduction='none')
+        cls_loss = loss(conf, in_mask.to(torch.float32))
+        cls_loss = cls_loss.mean(dim=-1)
+        cls_loss = (cls_loss*valid_class).sum()/valid_class.sum()
+        return cls_loss
+
+    def calDist(self, pred_endpoint, gt_end_point, gt_valid_len, data):
+        # get endpoint gt'yaw
+
+        yaw = data[..., 10:, 4]
+        vel = torch.square(data[..., 10, 5]**2+data[..., 10, 6]**2)
+        start_yaw = yaw[..., 0]
+
+        mask = gt_valid_len >= 49
+        end_yaw = torch.gather(yaw, dim=-1, index=gt_valid_len.unsqueeze(-1)).squeeze(-1)
+        pred_endpoint = self.rotate(pred_endpoint, -start_yaw)
+        gt_end_point = self.rotate(gt_end_point, -start_yaw)
+
+        thres = vel.unsqueeze(-1).repeat(1,1,2)
+        thres[...,0] = 1.5+1.5*(thres[...,0]-1.4)/9.6
+        thres[..., 1] = 3+3 * (thres[..., 1] - 1.4) / 9.6
+
+        thres[...,0][thres[..., 0]<1.5] = 1.5
+        thres[..., 0][thres[..., 0]>3] = 3
+        thres[..., 1][thres[..., 1]<3] = 3
+        thres[..., 1][thres[..., 1]>6] = 6
+
+        # rotate prediction to gt end point's coord
+        pred_endpoint-=gt_end_point
+        pred_endpoint = abs(self.rotate(pred_endpoint,end_yaw))
+        thres = thres.unsqueeze(-2).repeat(1,1,pred_endpoint.shape[-2],1)
+        x_in = pred_endpoint[...,0]<thres[...,0]
+        y_in = pred_endpoint[...,1]<thres[...,1]
+        all_in = x_in*y_in
+        dist = torch.sqrt(4*torch.square(pred_endpoint[...,0])+torch.square(pred_endpoint[...,1]))
+        return dist, all_in, mask
 
     def maxEntropyLoss(self, predict_flag, score, dis_mat):
         '''
@@ -106,3 +151,8 @@ class Loss(torch.nn.Module):
         missed = (inside_mask.sum(dim=(-1)) == 0) * predict_flag
         mr = missed.sum() / max(predict_flag.sum().float(), 1)
         return mr
+
+    def rotate(self, vec, yaw):
+        c, s = torch.cos(yaw).unsqueeze(-1).repeat(1, 1, vec.shape[-2]), torch.sin(yaw).unsqueeze(-1).repeat(1, 1, vec.shape[-2])
+        vec[..., 0], vec[..., 1] = c * vec[..., 0] + s * vec[..., 1], -s * vec[..., 0] + c * vec[..., 1]
+        return vec
