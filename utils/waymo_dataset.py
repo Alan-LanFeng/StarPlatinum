@@ -168,17 +168,17 @@ class WaymoDataset(Dataset):
         valid_traf = traf[:, -1] == 1
         # traf_reshape = np.zeros([16, 11, 6])
         # controlled_lanes = np.zeros([16, 9, 6])
-        lane_traf = np.zeros([MAX_LANE_NUM])
+        lane_traf = np.zeros([MAX_LANE_NUM], dtype=np.float32)
         if valid_traf.sum() == 0:
-            #return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
+            # return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
             return lane_traf
 
         # id_set = id_set[valid_traf]
         for index, id in enumerate(id_set):
             ind = np.argwhere(lane_id == id)
-            if ind.shape[0]==0: continue
-            #controlled_lanes[index] = lane_vector[ind[0][0]]
-            lane_traf[ind[0][0]] = traf[index,-2]
+            if ind.shape[0] == 0: continue
+            # controlled_lanes[index] = lane_vector[ind[0][0]]
+            lane_traf[ind[0][0]] = traf[index, -2]
         return lane_traf
 
         # for time in range(CURRENT + 1):
@@ -211,7 +211,7 @@ class WaymoDataset(Dataset):
         # gt
         # gt is nbrs ego-centric, which means prediction needed to be rotated in CaseVis
         out['gt'], out['gt_mask'] = self.gt_process(all_traj)
-        out['yaw'] = np.pad(all_traj[:, CURRENT, 5], [(0, MAX_AGENT_NUM - valid_agent_num)])
+        # out['yaw'] = np.pad(all_traj[:, CURRENT, 5], [(0, MAX_AGENT_NUM - valid_agent_num)])
         out['centroid'] = np.pad(all_traj[:, CURRENT, :2], [(0, MAX_AGENT_NUM - valid_agent_num), (0, 0)])
 
         # extra info-------------------------------
@@ -237,8 +237,8 @@ class WaymoDataset(Dataset):
 
         # obj type
         out['obj_type'] = np.pad(all_traj[:, CURRENT, 9], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
-        out['velocity'] = np.pad(all_traj[..., 3:5], [(0, MAX_NBRS_NUM + 1 - valid_agent_num), (0, 0), (0, 0)])
-        out['agent_id'] = np.pad(all_traj[:, CURRENT, -1], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
+        # out['velocity'] = np.pad(all_traj[..., 3:5], [(0, MAX_NBRS_NUM + 1 - valid_agent_num), (0, 0), (0, 0)])
+        # out['agent_id'] = np.pad(all_traj[:, CURRENT, -1], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
         try:
             out['state_id'] = str(data['id'][0], 'utf-8')
         except:
@@ -257,7 +257,7 @@ if __name__ == '__main__':
     dir = dataset_cfg['dataset_dir']
     cache_root = dir[:dir.find('trans')]
 
-    periods = ['training', 'validation', 'testing','validation_interactive', 'testing_interactive']
+    periods = ['training', 'validation', 'testing', 'validation_interactive', 'testing_interactive']
     batch_size = 64
 
     for period in periods:

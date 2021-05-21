@@ -11,6 +11,7 @@ from utils.evaluator import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
+import pickle
 # =========================evaluation======================================
 from torch.autograd import Variable
 
@@ -27,6 +28,43 @@ if __name__ == "__main__":
     cfg = load_config_data(f"./config/{args.cfg}.yaml")
     device = 'cpu' if args.local else 'cuda'
 
+    # check if there's cache
+    dataset_cfg = cfg['dataset_cfg']
+    dir = dataset_cfg['dataset_dir']
+    cache_root = dir[:dir.find('trans')]
+    cache_path = os.path.join(cache_root, dataset_cfg['cache_name'])
+    if not os.path.exists(cache_path):
+        print('starting cache')
+        dataset_cfg['cache'] = False
+        periods = ['training', 'validation', 'testing', 'validation_interactive', 'testing_interactive']
+        batch_size = dataset_cfg['batch_size']
+        for period in periods:
+            ds = WaymoDataset(dataset_cfg, period)
+            loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=dataset_cfg['num_workers'])
+            progress_bar = tqdm(loader)
+            cnt = 0
+            for data in progress_bar:
+                try:
+                    for k, v in data.items():
+                        data[k] = data[k].numpy()
+                except:
+                    pass
+                path_name = os.path.join(cache_root, dataset_cfg['cache_name'], period)
+                if not os.path.exists(path_name):
+                    os.makedirs(path_name)
+                for i in range(batch_size):
+                    cache_file = os.path.join(path_name, f'{cnt}.pkl')
+
+                    if not os.path.exists(cache_file):
+                        os.mknod(cache_file)
+                    try:
+                        with open(cache_file, 'wb') as f:
+                            pickle.dump({k: v[i] for k, v in data.items()}, f)
+                    except:
+                        pass
+                    cnt += 1
+    print("using existing cache")
+
     # print(cfg)
     if device == 'cpu':
         gpu_num = 1
@@ -41,13 +79,14 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
+    dataset_cfg['cache'] = True
     train_dataset = WaymoDataset(dataset_cfg, 'training')
     print('len:', len(train_dataset))
 
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
     # ================================evaluation Method==========================================
-    evaluator = WODEvaluator(cfg, device, gpu_num)
+    evaluator = WODEvaluator(cfg, device)
     # =================================== INIT Model ============================================================
     model = load_model_class(cfg['model_name'])
     model_cfg = cfg['model_cfg']
@@ -84,7 +123,7 @@ if __name__ == "__main__":
         model.train()
         print(f'{epoch + 1}/{max_epoch} start at ' +
               time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
-        smoothed_loss, save_model_step, total_miss_rate = 0, 0, 0
+
         progress_bar = tqdm(train_dataloader)
         for j, data in enumerate(progress_bar):
             # Checking data preprocess
@@ -102,12 +141,12 @@ if __name__ == "__main__":
                 model.parameters(), max_norm=train_cfg['max_norm_gradient'])
             optimizer.step()
             # * Display the results.
-            total_miss_rate = (j * total_miss_rate + miss_rate) / (j + 1)
+
 
             losses_text = ''
             for loss_name in losses:
                 losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
-            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, total_miss_rate * 100))
+            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, miss_rate * 100))
 
             log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
                         'MR': miss_rate}
@@ -117,10 +156,10 @@ if __name__ == "__main__":
             cnt += 1
 
         scheduler.step()
-        eval_dict = evaluator.evaluate(model)
-        for k,v in eval_dict.items():
-            writer.add_scalar(k, v, cnt)
 
+        eval_dict = evaluator.evaluate(model)
+        for k, v in eval_dict.items():
+            writer.add_scalar(k, v, cnt)
 
         # save after every epoch
         if not os.path.exists('./saved_models/'):
