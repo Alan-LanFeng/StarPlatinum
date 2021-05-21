@@ -8,6 +8,7 @@ class STF_oracle(STF):
 
     def forward(self, data):
         valid_len = data['valid_len']
+        self.device = valid_len.get_device()
         max_len = data['max_len']
         max_agent = max(torch.max(valid_len[:, 0]),self.max_pred_num)
         # trajectory module

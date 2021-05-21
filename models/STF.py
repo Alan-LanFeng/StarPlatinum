@@ -11,10 +11,9 @@ import copy
 
 
 class STF(nn.Module):
-    def __init__(self, cfg, device):
+    def __init__(self, cfg):
         super(STF, self).__init__()
         self.max_pred_num = cfg['max_pred_num']
-        self.device = device
 
         # num of proposal
         prop_num = cfg['prop_num']
