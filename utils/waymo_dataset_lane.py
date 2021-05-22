@@ -81,48 +81,50 @@ class WaymoDataset(Dataset):
     def lane_process(self, lane):
 
         # first divide [20000,9] point data into [660,10,4] lane data, each lane have 10 points
-        feat_list = []
+        lane_vector = np.zeros([660,9,5])
+        lane_id = np.zeros(660)
         rid = lane[:, 0]
         id_set = np.unique(rid)
+        cnt = 0
         for _id in id_set:
             if _id == -1:
                 continue
             arg = np.where(rid == _id)[0]
-            # feature includes x,y,type,validity
-            lis = [1, 2, 7, 8, 0]
+            # feature includes x,y,type,validity, id
+            lis = [1, 2, 7]
             feat = lane[arg, :]
             # filter lane type white/yellow lane
-            if feat[0, 7] in range(6, 14):
+            ty = feat[0, 7]
+            if ty in range(6, 17):
                 continue
-
+            if ty in range(1, 4):
+                feat[:,7] = 1
+            if ty in range(17,20):
+                feat[:,7]-=15
+            valid = feat[:, 8]
+            lane_id[cnt]=feat[0,0]
             feat = feat[:, lis]
+            feat = feat[valid==1]
             point_num = len(arg)
             if point_num <= LANE_SAMPLE:
-                selected_point = feat[:point_num, :].reshape(-1, len(lis))
-                selected_point = np.pad(selected_point, [(0, LANE_SAMPLE - point_num), (0, 0)])
-                feat_list.append(selected_point)
+                if point_num==1:
+                    lane_vector[cnt,0,:2] = feat[0,:2]
+                    lane_vector[cnt, 0, 2:] = feat[0,:3]
+                else:
+                    lane_vector[cnt,:point_num-1,:2] = feat[:-1,:2]
+                    lane_vector[cnt, :point_num-1, 2:] = feat[1:, :]
+                    if point_num<10 and ty in [18,19]:
+                        lane_vector[cnt,point_num-1,:2] = lane_vector[cnt,point_num-2,2:4]
+                        lane_vector[cnt, point_num - 1, 2:5] = lane_vector[cnt, 0, [0,1,4]]
             else:
                 interval = 1.0 * (point_num - 1) / (LANE_SAMPLE - 1)
                 selected_point_index = [int(np.round(i * interval)) for i in range(1, LANE_SAMPLE - 1)]
                 selected_point_index = [0] + selected_point_index + [point_num - 1]
                 selected_point = feat[selected_point_index, :]
-                feat_list.append(selected_point)
-
-        lane_feat = np.array(feat_list)
-        valid_len = lane_feat.shape[0]
-        lane_id = lane_feat[:, 0, -1]
-        # vectorize each lane
-        one_point = np.sum(lane_feat[:, :, -1], -1) == 1
-        vector_xy = np.concatenate((lane_feat[:, :-1, :2], lane_feat[:, 1:, :2]), -1)
-        vector_type = lane_feat[:, :-1, -3]
-        vector_valid = lane_feat[:, 1:, -2] * lane_feat[:, :-1, -2]
-        lane_vector = np.concatenate([vector_xy, vector_type[:, :, np.newaxis], vector_valid[:, :, np.newaxis]],
-                                     axis=-1).astype(np.float32)
-        lane_vector[one_point, 0, 2:4] = lane_vector[one_point, 0, 0:2]
-        lane_vector[one_point, 0, -1] = 1
-        invalid = lane_vector[:, :, -1] == 0
-        lane_vector[invalid, :] = 0
-        lane_vector = np.pad(lane_vector, [(0, MAX_LANE_NUM - lane_vector.shape[0]), (0, 0), (0, 0)])
+                lane_vector[cnt,:,:2] = selected_point[:-1,:2]
+                lane_vector[cnt, :, 2:] = selected_point[1:, :]
+            cnt+=1
+        valid_len = cnt
         return lane_vector, valid_len, lane_id
 
     def map_allocation(self, xy, theta, lane):
