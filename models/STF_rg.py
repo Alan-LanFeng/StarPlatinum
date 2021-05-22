@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from models.utils import (
     Encoder, EncoderLayer,
     Decoder, DecoderLayer,
@@ -27,7 +28,7 @@ class STF_rg(STF):
         h = cfg['attention_head']
         dropout = cfg['dropout']
         N = cfg['model_layers_num']
-
+        pos_dim = 16
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
@@ -41,6 +42,29 @@ class STF_rg(STF):
         self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
         self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
 
+        self.cent_emb = nn.Sequential(
+            nn.Linear(2, pos_dim, bias=True),
+            nn.LayerNorm(pos_dim),
+            nn.ReLU(),
+            nn.Linear(pos_dim, pos_dim, bias=True))
+        self.yaw_emb = nn.Sequential(
+            nn.Linear(2, pos_dim, bias=True),
+            nn.LayerNorm(pos_dim),
+            nn.ReLU(),
+            nn.Linear(pos_dim, pos_dim, bias=True))
+
+        self.fusion1cent = nn.Sequential(
+            nn.Linear(d_model + pos_dim, d_model, bias=True),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model, bias=True))
+        self.fusion1yaw = nn.Sequential(
+            nn.Linear(d_model + pos_dim, d_model, bias=True),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model, bias=True))
+
+
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
@@ -49,11 +73,26 @@ class STF_rg(STF):
         batch_size = valid_len.shape[0]
         # trajectory module
         hist = data['hist'][:, :max_agent]
+        center = hist[...,-1,2:]
+        yaw = data['misc'][:,:max_agent,10,4]
+        yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
+        center_emb = self.cent_emb(center)
+        yaw_emb = self.yaw_emb(yaw_1)
+        #pos = torch.cat([center,yaw.unsqueeze(-1)],-1)
+
+        hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
+        hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
+        hist[...,:2] = self._rotate(hist[...,:2],yaw)
+        hist[...,2:4] = self._rotate(hist[...,2:4],yaw)
 
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                        1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
+        hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion1cent(hist_out)
+        hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion1yaw(hist_out)
 
         # TODO: lane module
         lane = data['lane_vector'][:, :max_lane]

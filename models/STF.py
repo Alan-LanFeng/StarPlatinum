@@ -107,3 +107,8 @@ class STF(nn.Module):
         mask = index < 1000
         index[index == 1000] = 0
         return index, mask
+
+    def _rotate(self, vec, yaw):
+        c, s = torch.cos(yaw).unsqueeze(-1).repeat(1, 1, vec.shape[-2]), torch.sin(yaw).unsqueeze(-1).repeat(1, 1, vec.shape[-2])
+        vec[..., 0], vec[..., 1] = c * vec[..., 0] + s * vec[..., 1], -s * vec[..., 0] + c * vec[..., 1]
+        return vec
