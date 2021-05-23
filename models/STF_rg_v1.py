@@ -20,9 +20,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_rg(STF):
+class STF_rg_v1(STF):
     def __init__(self, cfg):
-        super(STF_rg, self).__init__(cfg)
+        super(STF_rg_v1, self).__init__(cfg)
 
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -32,7 +32,6 @@ class STF_rg(STF):
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
-
         # num of proposal
         self.lanenet = LaneNet(
             cfg['lane_dims'],
@@ -70,15 +69,11 @@ class STF_rg(STF):
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
         max_lane = torch.max(valid_len[:, 1])
         max_adj_lane = torch.max(valid_len[:, 2])
-        batch_size = valid_len.shape[0]
+
         # trajectory module
         hist = data['hist'][:, :max_agent]
-        center = hist[...,-1,2:]
-        yaw = data['misc'][:,:max_agent,10,4]
-        yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
-        center_emb = self.cent_emb(center)
-        yaw_emb = self.yaw_emb(yaw_1)
-        #pos = torch.cat([center,yaw.unsqueeze(-1)],-1)
+        center = torch.clone(data['hist'][:, :max_agent][...,-1,2:])
+        yaw = torch.clone(data['misc'][:,:max_agent,10,4])
 
         hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
@@ -89,25 +84,33 @@ class STF_rg(STF):
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                        1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
-        hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        hist_out = self.fusion1cent(hist_out)
-        hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        hist_out = self.fusion1yaw(hist_out)
 
         # TODO: lane module
         lane = data['lane_vector'][:, :max_lane]
-        lane_enc = self.lanenet(lane)
-        lane_valid_len = data['valid_len'][:, 0]
-        lane_mask = torch.zeros((batch_size, 1, max_lane)).to(lane_enc.device)
-        for i in range(batch_size):
-            lane_mask[i, 0, :lane_valid_len[i]] = 1
-        lane_mem = self.lane_enc(self.lane_emb(lane_enc), lane_mask)
-        lane_mem = lane_mem.unsqueeze(1).repeat(1, max_agent, 1, 1)
+        lane = lane.unsqueeze(1).repeat(1, max_agent, 1, 1, 1)
+
         adj_index = data['adj_index'][:, :max_agent, :max_lane]
         adj_mask = data['adj_mask'][:, :max_agent, :max_lane]
-        adj_index = adj_index.unsqueeze(-1).repeat(1, 1, 1, 128)[:, :, :max_adj_lane]
+        adj_index = adj_index.reshape(*adj_index.shape,1,1).repeat(1, 1, 1,*lane.shape[-2:])[:, :, :max_adj_lane]
         adj_mask = adj_mask.unsqueeze(2)[:, :, :, :max_adj_lane]
-        lane_mem = torch.gather(lane_mem, dim=-2, index=adj_index)
+        lane = torch.gather(lane,2,adj_index)
+
+        lane[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1,1).repeat(1,1,*lane.shape[2:4],2)
+        lane[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2], 1, 1, 1).repeat(1, 1, *lane.shape[2:4], 2)
+        lane = lane.reshape(*lane.shape[:2],-1,lane.shape[-1])
+        lane[...,:2] = self._rotate(lane[...,:2],yaw)
+        lane[..., 2:4] = self._rotate(lane[..., 2:4], yaw)
+        lane = lane.reshape(*lane.shape[:2], -1,9, lane.shape[-1])
+        lane = lane.reshape(lane.shape[0],-1,*lane.shape[-2:])
+
+        lane_enc = self.lanenet(lane)
+        lane_enc = lane_enc.reshape(lane_enc.shape[0],max_agent,max_adj_lane,lane_enc.shape[-1])
+        lane_enc = lane_enc.reshape(-1,*lane_enc.shape[-2:])
+        lane_mask = adj_mask.reshape(-1,*adj_mask.shape[-2:])
+
+        lane_mem = self.lane_enc(self.lane_emb(lane_enc), lane_mask)
+        lane_mem = lane_mem.reshape(*hist_out.shape[:2],*lane_mem.shape[-2:])
+
         lane_out = self.lane_dec(hist_out, lane_mem, adj_mask, None)
 
         # TODO: Traffic_light module
