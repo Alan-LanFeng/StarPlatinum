@@ -2,17 +2,17 @@
 format_version: 4
 
 vanilla_model_name: 'STF_rg_hi_pyf'
-vanilla_ckpt: 'STF_rg_hi_pyf_9_5'
+vanilla_ckpt: 'STF_rg_hi_pyf_9_119'
 oracle_model_name: 'STF_rg_hi_pyf_oracle'
-oracle_ckpt: 'oracle_7'
+oracle_ckpt: 'oracle_126'
 track: 'motion'
 
 # dataset related
 dataset_cfg:
   cache: True
-  cache_name: cache1
+  cache_name: cache2
   shrink: True
-  dataset_dir: '/data/uncompressed/trans'
+  dataset_dir: '/data/uncompressed/trans_val'
   # dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
   shuffle: True
   batch_size: 4
