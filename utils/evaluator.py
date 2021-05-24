@@ -4,7 +4,7 @@ import tensorflow as tf
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from .waymo_dataset import WaymoDataset
+from .waymo_dataset_v2 import WaymoDataset
 
 from google.protobuf import text_format
 from waymo_open_dataset.metrics.ops import py_metrics_ops
@@ -197,19 +197,19 @@ class WODEvaluator(object):
                                                         object_type=x5)
                 resl = [res.min_ade, res.min_fde, res.miss_rate, res.overlap_rate, res.mean_average_precision]
                 assert 1 == 1
-                for j in range(5):
-                    for k in range(3):
-                        if self.mode == 'motion':
-                            showtime = ((object_type == k + 1) * (gt_is_valid.sum(-1) > 0)).sum()
-                        else:
-                            showtime = ((object_type[:, 0] == k + 1) * (gt_is_valid.sum(-1) > 0)).sum()
+                for k in range(3):
+                    if self.mode == 'motion':
+                        showtime = ((object_type == k + 1) * (gt_is_valid.sum(-1) > 0)).sum()
+                    else:
+                        showtime = ((object_type[:, 0] == k + 1) * (gt_is_valid.sum(-1) > 0)).sum()
 
-                        if showtime == 0:
-                            continue
+                    if showtime == 0:
+                        continue
+                    for j in range(5):
                         for time in range(3):
                             resl_numpy = resl[j][3 * k + time].numpy()
                             assert resl_numpy >= 0, f'{showtime}-{j}-{k}-{time}-{resl_numpy}-{object_type}'
                             tot[j][3 * k + time] = (tot[j][3 * k + time] * cnt[k] + resl_numpy) / (cnt[k] + 1)
-                        cnt[k] += 1
+                    cnt[k] += 1
 
         return self.get_res_in_tabular(tot, verbose=True)

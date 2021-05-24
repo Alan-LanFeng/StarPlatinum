@@ -6,7 +6,7 @@ from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
-from utils.waymo_dataset import WaymoDataset
+from utils.waymo_dataset_v2 import WaymoDataset
 from utils.evaluator import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data

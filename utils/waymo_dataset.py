@@ -240,7 +240,9 @@ class WaymoDataset(Dataset):
         # out['velocity'] = np.pad(all_traj[..., 3:5], [(0, MAX_NBRS_NUM + 1 - valid_agent_num), (0, 0), (0, 0)])
         # out['agent_id'] = np.pad(all_traj[:, CURRENT, -1], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
         try:
-            out['state_id'] = str(data['id'][0], 'utf-8')
+            out['id'] = str(data['id'][0], 'utf-8')
+            out['theta'] = data['theta']
+            out['center'] = data['center']
         except:
             pass
 

@@ -15,8 +15,8 @@ LANE_SAMPLE = 10
 
 # adjacent lane params
 # any lane in this range will become a specific agents' adjacent lane
-DIST = 10  # 10m in front of the agent
-RADIUS = 15  # circle with radius 15
+DIST = 15  # 10m in front of the agent
+RADIUS = 20  # circle with radius 15
 
 import os
 
@@ -59,13 +59,11 @@ class WaymoDataset(Dataset):
 
     def hist_process(self, traj):
         vector = np.concatenate([traj[..., :CURRENT, :2], traj[..., 1:CURRENT + 1, :2]], -1)
-        # data['nbrs_p_c_f'][:, 9::-1, -2] = data['nbrs_p_c_f'][:, 9::-1, -2].cumsum(-1) == np.ones(10).cumsum()
         mask = traj[..., :CURRENT, -2] * traj[..., 1:CURRENT + 1, -2]
         return np.pad(vector, [(0, MAX_AGENT_NUM - vector.shape[0]), (0, 0), (0, 0)]), \
                np.pad(mask, [(0, MAX_AGENT_NUM - mask.shape[0]), (0, 0)]).astype(bool)
 
     # TODO: try control signal, try rho theta
-    # current gt:, ego-centric 2d vector
     def gt_process(self, traj):
         future = traj[..., CURRENT:, :]
         centroid = np.expand_dims(traj[..., CURRENT, :2], 1).repeat(future.shape[-2], 1)
@@ -78,60 +76,86 @@ class WaymoDataset(Dataset):
         return np.pad(vector, [(0, MAX_AGENT_NUM - vector.shape[0]), (0, 0), (0, 0)]), \
                np.pad(cum_mask, [(0, MAX_AGENT_NUM - cum_mask.shape[0]), (0, 0)])
 
-    def lane_process(self, lane):
+    def lane_process(self, lane,traf):
 
         # first divide [20000,9] point data into [660,10,4] lane data, each lane have 10 points
-        lane_vector = np.zeros([660,9,5],dtype=np.float32)
-        lane_id = np.zeros(660,dtype=np.float32)
+        lane_vector = np.zeros([660,9,11],dtype=np.float32)
         rid = lane[:, 0]
         id_set = np.unique(rid)
         cnt = 0
+
+        traf_id = traf[:, 0]
         for _id in id_set:
             if _id == -1:
                 continue
+
+            ind = np.argwhere(traf_id == _id)
+            if ind.shape[0] == 0:
+                ts = [0,0,0]
+            else:
+                ts = traf[ind[0][0],-2]
+                if ts in [1,4,7]:
+                    ts = [1,0,0]
+                elif ts in[2,5,8]:
+                    ts = [0,1,0]
+                elif ts in [3,6]:
+                    ts = [0,0,1]
+                else:
+                    ts = [0,0,0]
+
             arg = np.where(rid == _id)[0]
             # feature includes x,y,type,validity, id
-            lis = [1, 2, 7]
+            lis = [1, 2]
             feat = lane[arg, :]
             # filter lane type white/yellow lane
             ty = feat[0, 7]
             if ty in range(6, 17):
                 continue
             if ty in range(1, 4):
-                feat[:,7] = 1
+                #feat[:,7] = 1
+                one_hot = [1,0,0,0]
             if ty in range(17,20):
-                feat[:,7]-=15
+                if ty == 17:
+                    one_hot = [0,1,0,0]
+                elif ty ==18:
+                    one_hot = [0,0,1,0]
+                elif ty == 19:
+                    one_hot = [0,0,0,1]
+            all_one_hot = one_hot + ts
             valid = feat[:, 8]
-            lane_id[cnt]=feat[0,0]
             feat = feat[:, lis]
             feat = feat[valid==1]
             point_num = len(arg)
             if point_num <= LANE_SAMPLE:
                 if point_num==1:
                     lane_vector[cnt,0,:2] = feat[0,:2]
-                    lane_vector[cnt, 0, 2:] = feat[0,:3]
+                    lane_vector[cnt, 0, 2:4] = feat[0,:2]
+                    lane_vector[cnt,0,4:] = all_one_hot
                 else:
                     lane_vector[cnt,:point_num-1,:2] = feat[:-1,:2]
-                    lane_vector[cnt, :point_num-1, 2:] = feat[1:, :]
+                    lane_vector[cnt, :point_num-1, 2:4] = feat[1:, :2]
+                    lane_vector[cnt, :point_num-1, 4:] = all_one_hot
                     if point_num<10 and ty in [18,19]:
                         lane_vector[cnt,point_num-1,:2] = lane_vector[cnt,point_num-2,2:4]
-                        lane_vector[cnt, point_num - 1, 2:5] = lane_vector[cnt, 0, [0,1,4]]
+                        lane_vector[cnt, point_num - 1, 2:4] = lane_vector[cnt, 0, :2]
+                        lane_vector[cnt, point_num - 1, 4:] = all_one_hot
             else:
                 interval = 1.0 * (point_num - 1) / (LANE_SAMPLE - 1)
                 selected_point_index = [int(np.round(i * interval)) for i in range(1, LANE_SAMPLE - 1)]
                 selected_point_index = [0] + selected_point_index + [point_num - 1]
                 selected_point = feat[selected_point_index, :]
-                lane_vector[cnt,:,:2] = selected_point[:-1,:2]
-                lane_vector[cnt, :, 2:] = selected_point[1:, :]
+                lane_vector[cnt,:,:2] = selected_point[:-1,:]
+                lane_vector[cnt, :, 2:4] = selected_point[1:, :]
+                lane_vector[cnt,:,4:] = all_one_hot
             cnt+=1
         valid_len = cnt
-        return lane_vector, valid_len, lane_id
+        return lane_vector, valid_len
 
     def map_allocation(self, xy, theta, lane):
 
         front_x, front_y = xy[:, 0] - np.sin(theta) * DIST, xy[:, 1] + np.cos(theta) * DIST
         lane_xy = (lane[..., :2] + lane[..., 2:4]) / 2
-        mask = lane[:, :, -1] == 0
+        mask = np.sum(lane_xy,-1)==0
         lane_xy[mask, :] = 100000
         lane_xy = lane_xy.reshape(-1, 2)
         lane_x, lane_y = lane_xy[:, 0], lane_xy[:, 1]
@@ -165,33 +189,6 @@ class WaymoDataset(Dataset):
         index[index == 1000] = 0
         return index, mask
 
-    def traffic_process(self, traf, lane_id):
-        id_set = traf[:, 0]
-        valid_traf = traf[:, -1] == 1
-        # traf_reshape = np.zeros([16, 11, 6])
-        # controlled_lanes = np.zeros([16, 9, 6])
-        lane_traf = np.zeros([MAX_LANE_NUM], dtype=np.float32)
-        if valid_traf.sum() == 0:
-            # return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
-            return lane_traf
-
-        # id_set = id_set[valid_traf]
-        for index, id in enumerate(id_set):
-            ind = np.argwhere(lane_id == id)
-            if ind.shape[0] == 0: continue
-            # controlled_lanes[index] = lane_vector[ind[0][0]]
-            lane_traf[ind[0][0]] = traf[index, -2]
-        return lane_traf
-
-        # for time in range(CURRENT + 1):
-        #     all_traf = traf[time, :, 0]
-        #     for index, id in enumerate(id_set):
-        #         pos = np.argwhere(all_traf == id)
-        #         if pos.shape[0]==0: continue
-        #         traf_reshape[index, time] = traf[time, pos[0][0]]
-        #
-        # return traf_reshape[..., [1, 2, 4]], traf_reshape[..., -1] == 1, controlled_lanes
-
     def process(self, data):
         out = dict()
         # since there's no id in cluster,so we fabricate it
@@ -218,13 +215,11 @@ class WaymoDataset(Dataset):
 
         # extra info-------------------------------
         # lane info
-        out['lane_vector'], lane_num, lane_id = self.lane_process(data['lane'])
+        out['lane_vector'], lane_num = self.lane_process(data['lane'],data['traf_p_c_f'][CURRENT])
 
         # agents' adjacent lane index in the lane_vector, size=[agent_num,adj_lane_num]
         out['adj_index'], out['adj_mask'] = self.map_allocation(all_traj[..., CURRENT, :2], all_traj[..., CURRENT, 5],
                                                                 out['lane_vector'][:lane_num])
-        # traffic light
-        out['traffic_light'] = self.traffic_process(data['traf_p_c_f'][CURRENT], lane_id)
 
         # trunk related----------------------#
         adj_lane_num = np.max(np.sum(out['adj_mask'], axis=1))
