@@ -20,9 +20,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_hi_v2(STF):
+class STF_hi_v3(STF):
     def __init__(self, cfg):
-        super(STF_hi_v2, self).__init__(cfg)
+        super(STF_hi_v3, self).__init__(cfg)
         prop_num = cfg['prop_num']
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -32,7 +32,7 @@ class STF_hi_v2(STF):
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
-        pos_dim = 128
+        pos_dim = 16
         # num of proposal
         self.social_emb = nn.Sequential(
             nn.Linear(prop_num * d_model, d_model, bias=True),
@@ -47,16 +47,11 @@ class STF_hi_v2(STF):
             nn.LayerNorm(pos_dim),
             nn.ReLU(),
             nn.Linear(pos_dim, pos_dim, bias=True))
-
         self.yaw_emb = nn.Sequential(
-            nn.Linear(1, pos_dim, bias=True),
-            nn.LayerNorm(pos_dim),
-            nn.ReLU(),
-            nn.Linear(pos_dim, pos_dim, bias=True),
+            nn.Linear(2, pos_dim, bias=True),
             nn.LayerNorm(pos_dim),
             nn.ReLU(),
             nn.Linear(pos_dim, pos_dim, bias=True))
-
 
         self.fusion1cent = nn.Sequential(
             nn.Linear(d_model + pos_dim, d_model, bias=True),
@@ -77,10 +72,9 @@ class STF_hi_v2(STF):
         hist = data['hist'][:, :max_agent]
         center = hist[...,-1,2:]
         yaw = data['misc'][:,:max_agent,10,4]
-        yaw1 = yaw.unsqueeze(-1).repeat(1,1,128).unsqueeze(-1)
+        yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
         center_emb = self.cent_emb(center)
-        yaw_emb = self.yaw_emb(yaw1)
-        # yaw_emb = self.yaw_emb(yaw_1)
+        yaw_emb = self.yaw_emb(yaw_1)
 
         hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
@@ -91,25 +85,24 @@ class STF_hi_v2(STF):
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                        1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
-        # hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        # hist_out = self.fusion1cent(hist_out)
-        # hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        # hist_out = self.fusion1yaw(hist_out)
-        center_emb = center_emb.unsqueeze(-2).repeat(1,1,6,1)
-        hist_out+=center_emb
-        yaw_emb = yaw_emb.unsqueeze(-3).repeat(1,1,6,1,1)
-        hist_out = hist_out.unsqueeze(-1)
-        hist_out = torch.matmul(yaw_emb,hist_out).squeeze(-1)
+        hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion1cent(hist_out)
+        hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion1yaw(hist_out)
+
         # TODO: lane module
         # TODO: Traffic_light module
         # TODO: high-order interaction module
+        K = hist_out.shape[-2]
+        hist_out = hist_out.reshape(hist_out.shape[0],-1,hist_out.shape[-1])
         social_valid_len = data['valid_len'][:, 1] + 1
-        social_mask = torch.zeros((batch_size, 1, max_agent)).to(hist_out.device)
+        social_mask = torch.zeros((batch_size, 1, max_agent*K)).to(hist_out.device)
         for i in range(batch_size):
-            social_mask[i, 0, :social_valid_len[i]] = 1
-        social_emb = self.social_emb(hist_out.view(*hist_out.shape[:2], -1))
-        social_mem = self.social_enc(social_emb, social_mask)
-        social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
+            social_mask[i, 0, :social_valid_len[i]*K] = 1
+        #social_emb = self.social_emb(hist_out.view(*hist_out.shape[:2], -1))
+        social_mem = self.social_enc(hist_out, social_mask)
+        hist_out = hist_out.reshape(hist_out.shape[0],-1,6,128)
+        social_out = social_mem.reshape(social_mem.shape[0],-1,6,128)
         out = torch.cat([social_out, hist_out], -1)
 
         gather_list, new_data = self._gather_new_data(data, max_agent)
