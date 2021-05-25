@@ -71,10 +71,11 @@ class STF_rg_hi_pyf_oracle(STF):
         # =============trajectory module===========================
         hist = data['hist'][:, :max_agent]
         self.device = hist.get_device()
-        center = hist[...,-1,2:]
+
+        center = data['misc'][:, :max_agent, 10, :2].detach().clone()
         yaw = data['misc'][:,:max_agent,10,4]
         pos = torch.cat([center,yaw.unsqueeze(-1)],-1)
-
+        tmp = hist.detach().cpu().numpy()
         hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[...,:2] = self._rotate(hist[...,:2],yaw)
@@ -88,11 +89,14 @@ class STF_rg_hi_pyf_oracle(STF):
         exp_hist_mask[:, :, :, :10] = hist_mask.detach().clone()
         for i in range(data['misc'].shape[0]):
             idx = torch.where(data['tracks_to_predict'][i] == True)[0][0]
-            ego_gt = data['misc'][i, idx, 10:, :2]  # batch, 91, 2
+            ego_gt = data['misc'][i, idx, 10:, :2]# batch, 91, 2
+            ego_gt[:, 0] -= center[i, idx, 0]
+            ego_gt[:, 1] -= center[i, idx, 1]
             ego_gt_mask = data['misc'][i, idx, 10:, -2]
             exp_hist[i, idx, 10:, :] = torch.cat([ego_gt[:-1, :], ego_gt[1:, :]], dim=-1)
             exp_hist_mask[i, idx, :, 10:] = (ego_gt_mask[:-1] * ego_gt_mask[1:]).type(torch.bool)
-
+        tmp = exp_hist.detach().cpu().numpy()
+        tmp_mask = exp_hist_mask.detach().cpu().numpy()
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                                   1, 1)
         hist_out = self.hist_tf(exp_hist, self.query_batches,exp_hist_mask, None)
