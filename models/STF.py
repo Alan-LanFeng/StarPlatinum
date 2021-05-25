@@ -65,6 +65,24 @@ class STF(nn.Module):
 
         return outputs_coord, outputs_class, new_data
 
+    def _exp_hist_with_ego_gt(self, data: dict, hist: torch.Tensor, hist_mask: torch.Tensor,
+                             center: torch.Tensor, yaw: torch.Tensor):
+        batch_size, car_num, horizon, channels = hist.shape
+        exp_hist = torch.zeros([batch_size, car_num, 90, channels]).to(self.device)
+        exp_hist_mask = torch.zeros([batch_size, car_num, 1, 90]).to(self.device)
+        exp_hist[:, :, :10, :] = hist.detach().clone()
+        exp_hist_mask[:, :, :, :10] = hist_mask.detach().clone()
+        for i in range(data['misc'].shape[0]):
+            idx = torch.where(data['tracks_to_predict'][i] == True)[0][0]
+            ego_gt = data['misc'][i, idx, 10:, :2]# batch, 91, 2
+            ego_gt[:, 0] -= center[i, idx, 0]
+            ego_gt[:, 1] -= center[i, idx, 1]
+            ego_gt[:, :2] = self._rotate(ego_gt[:, :2], yaw[i, idx])
+            ego_gt_mask = data['misc'][i, idx, 10:, -2]
+            exp_hist[i, idx, 10:, :] = torch.cat([ego_gt[:-1, :], ego_gt[1:, :]], dim=-1)
+            exp_hist_mask[i, idx, :, 10:] = (ego_gt_mask[:-1] * ego_gt_mask[1:]).type(torch.bool)
+        return exp_hist, exp_hist_mask
+
     def _gather_new_data(self, data, max_agent):
         # select predict list and gather needed data
         tracks_to_predict = data['tracks_to_predict'][:, :max_agent]
