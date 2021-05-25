@@ -1,11 +1,7 @@
 import os
 import torch
 import tensorflow as tf
-from torch.utils.data import DataLoader
 from tqdm import tqdm
-
-from .waymo_dataset_v2 import WaymoDataset
-
 from google.protobuf import text_format
 from waymo_open_dataset.metrics.ops import py_metrics_ops
 from waymo_open_dataset.protos import motion_metrics_pb2
@@ -41,14 +37,8 @@ class suppress_stdout_stderr(object):
             os.close(fd)
 
 class WODEvaluator(object):
-    def __init__(self, cfg, device):
-        dataset_cfg = cfg['dataset_cfg']
-        val_dataset = WaymoDataset(dataset_cfg, 'validation')
-        self.val_dataloader = DataLoader(val_dataset,
-                                         shuffle=dataset_cfg['shuffle'],
-                                         batch_size=dataset_cfg['batch_size'] if device != 'cpu' else 4,
-                                         num_workers=dataset_cfg['num_workers'],
-                                         collate_fn=None)
+    def __init__(self, cfg, device,dataloader):
+        self.val_dataloader = dataloader
         self.best_miss_rate = 1.0
         self.device = device
         self.metric_default_cfg = self._get_default_config()
