@@ -261,6 +261,8 @@ if __name__ == '__main__':
     cfg = load_config_data(f"../config/{args.cfg}.yaml")
     dataset_cfg = cfg['dataset_cfg']
     dataset_cfg['cache'] = False
+    dataset_cfg['shrink'] = True
+
     dir = dataset_cfg['dataset_dir']
     cache_root = dir[:dir.find('trans')]
 

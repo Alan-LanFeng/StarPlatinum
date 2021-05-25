@@ -74,13 +74,17 @@ class Canvas:
 
     def collect_loss(self, coord):
         # coord: 80, 2
-        canvas = self.canvas[..., np.newaxis] + self.dynamic_canvas
-        canvas = torch.from_numpy(canvas.reshape(-1, 80))
+        scanvas = self.canvas[..., np.newaxis]
+        scanvas = np.tile(scanvas, 80)
+        dcanvas = self.dynamic_canvas
+        canvas = torch.from_numpy(dcanvas.reshape(-1, 80))
         x = (coord[:, 0] - self.L).type(torch.int64)
         y = (coord[:, 1] - self.D).type(torch.int64)
         idx = (x*int(self.U-self.D+1) + y).unsqueeze(0).detach().cpu()
-        loss_sum = torch.gather(canvas, index=idx, dim=0).sum()
-        return loss_sum
+        dloss_sum = torch.gather(canvas, index=idx, dim=0).sum()
+        canvas = torch.from_numpy(scanvas.reshape(-1, 80))
+        sloss_sum = torch.gather(canvas, index=idx, dim=0).sum()
+        return sloss_sum, dloss_sum
 
     def to_image(self, name):
         img = Image.fromarray(self.canvas * 256).convert('L')
@@ -128,6 +132,7 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
     D, U = torch.min(D, ora_coord_y.min(-1).values), torch.max(U, ora_coord_y.max(-1).values)
 
     losses = []
+    dlosses = []
     for i in range(batch_size):
         canvas = Canvas(L[i], R[i], D[i], U[i])
         # 1. build cost map with LANE INFO
@@ -149,17 +154,12 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
         canvas.flush()
 
         # calculate pro-active proposal loss
-        collected_loss = canvas.collect_loss(plan_coord[i])
-        losses.append(collected_loss)
+        sloss, dloss = canvas.collect_loss(plan_coord[i])
+        losses.append(sloss)
+        dlosses.append(dloss)
         if log:
             canvas.to_image(i)
-    ego_jes = plan_coord.std(1).sum(1).tolist()
-    other_jes = ora_coord.std(-2).sum([1,2,3]).tolist()
-    for i,x in enumerate(losses):
-        print(losses[i], end='-')
-        losses[i] = x.numpy() + ego_jes[i] + other_jes[i]
-        print(losses[i])
-    return losses
+    return losses, dlosses, plan_coord.std(1).sum(1), ora_coord.std(-2).sum([1,2,3])
 
 
 if __name__ == "__main__":
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
-    train_dataset = WaymoDataset(dataset_cfg, 'validation')
+    train_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
     print('len:', len(train_dataset))
 
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
@@ -227,6 +227,9 @@ if __name__ == "__main__":
     progress_bar = tqdm(train_dataloader)
     loss_cmr_total = 0
     pred_cmr_total = 0
+
+    a,b,cc,d,e,g,h = [], [], [], [], [], [], []
+    xxx = 0
     for j, data in enumerate(progress_bar):
         for key in data.keys():
             if isinstance(data[key], torch.DoubleTensor):
@@ -248,22 +251,55 @@ if __name__ == "__main__":
         coord = coord.cumsum(-2) + centroid
         batch_size = coord.shape[0]
         losses = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
+        dlosses = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
+        egojes = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
+        otherjes = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
         for k in range(cfg['model_cfg']['prop_num']):
-            ego_future_path = coord[:, k]
-            data['misc'][:, 0, 11:, :2] = ego_future_path
-            data['misc'][:, 0, 11:, -2].fill_(1)
+            for i in range(coord.shape[0]):
+                ego_future_path = coord[i, k]
+                tmp = torch.where(data['tracks_to_predict'][i]==True)
+                idx = torch.where(data['tracks_to_predict'][i]==True)[0][0]
+                data['misc'][i, idx, 11:, :2] = ego_future_path
+                path = data['misc'][i, idx].detach().cpu().numpy()
+                data['misc'][i, idx, 11:, -2].fill_(1)
 
             ora_coord, ora_score, ora_new_data = oracle_model(data)
-            loss = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
-            losses[:, k] = torch.tensor(loss)
+            loss, dloss, egoj, otherj = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
+            losses[:, k] = torch.tensor(loss).clone().detach().cpu()
+            dlosses[:, k] = torch.tensor(dloss).clone().detach().cpu()
+            egojes[:, k] = torch.tensor(egoj).clone().detach().cpu()
+            otherjes[:, k] = torch.tensor(otherj).clone().detach().cpu()
         loss_idx = losses.argsort(dim=-1)
         pred_idx = score[:, 0, :].argsort(dim=-1).cpu()
         dist = new_data['gt'][:, ego_index, -1, :].unsqueeze(1) - coord[:, :, -1]
         dist = torch.norm(dist, dim=-1, p=2)
         gt_idx = dist.argsort(dim=-1).cpu()
-        topk = 3
-        loss_cmr = (loss_idx == gt_idx)[:, :topk].sum()
-        pred_cmr = (pred_idx == gt_idx)[:, :topk].sum()
-        loss_cmr_total += loss_cmr
-        pred_cmr_total += pred_cmr
-        progress_bar.set_description(desc='pro_CMR: %.3f, perd_CMR: %.3f' % (float(loss_cmr_total)/(j+1)/batch_size/topk, float(pred_cmr_total)/(j+1)/batch_size/topk))
+        # losses, dlosses, egojes, otherjes, gt_idx
+        a.append(losses.argsort(dim=-1))
+        b.append(dlosses.argsort(dim=-1))
+        cc.append(egojes.argsort(dim=-1))
+        d.append(otherjes.argsort(dim=-1))
+        e.append(pred_idx)
+        g.append(gt_idx)
+        xxx += 1
+        if xxx == 10:
+            break
+    a = torch.cat(a, dim=0).unsqueeze(-1).type(torch.float)
+    b = torch.cat(b, dim=0).unsqueeze(-1).type(torch.float)
+    cc = torch.cat(cc, dim=0).unsqueeze(-1).type(torch.float)
+    d = torch.cat(d, dim=0).unsqueeze(-1).type(torch.float)
+    e = torch.cat(e, dim=0).unsqueeze(-1).type(torch.float)
+    g = torch.cat(g, dim=0).unsqueeze(-1).type(torch.float)
+    p = torch.cat([a,b,cc,d,e,g], dim=-1).reshape(-1, 6)
+    p = torch.nn.functional.normalize(p, dim=0, p=2)
+    print(p.shape)
+
+    import pandas as pd
+    px = pd.DataFrame(p.detach().numpy())
+    corrMatrix = px.corr()
+    print(corrMatrix)
+    import seaborn as sn
+    import matplotlib.pyplot as plt
+    sn.heatmap(corrMatrix, annot=True)
+    plt.savefig('./canvas/corr_int.png')
+

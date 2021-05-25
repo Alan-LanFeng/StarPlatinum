@@ -1,20 +1,20 @@
 # Config format schema number
 format_version: 4
 
-vanilla_model_name: 'STF'
-vanilla_ckpt: 'vanilla_1'
-oracle_model_name: 'STF_oracle'
-oracle_ckpt: 'oracle_1'
+vanilla_model_name: 'STF_rg_hi_pyf'
+vanilla_ckpt: 'STF_rg_hi_pyf_9_119'
+oracle_model_name: 'STF_rg_hi_pyf_oracle'
+oracle_ckpt: 'oracle_126'
 track: 'motion'
 
 # dataset related
 dataset_cfg:
   cache: True
-  cache_name: cache1
+  cache_name: cache2
   shrink: True
-  dataset_dir: '/data/uncompressed/trans'
+  dataset_dir: '/data/uncompressed/trans_val'
   # dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
-  shuffle: True
+  shuffle: False
   batch_size: 4
   num_workers: 0
 
@@ -26,7 +26,7 @@ model_cfg:
   out_dims: 160
   subgraph_width_unit: 32
   num_subgraph_layers: 2
-  prop_num: 36
+  prop_num: 6
   d_model: 128
   attention_head: 2
   dropout: 0.0
