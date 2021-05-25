@@ -153,6 +153,12 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
         losses.append(collected_loss)
         if log:
             canvas.to_image(i)
+    ego_jes = plan_coord.std(1).sum(1).tolist()
+    other_jes = ora_coord.std(-2).sum([1,2,3]).tolist()
+    for i,x in enumerate(losses):
+        print(losses[i], end='-')
+        losses[i] = x.numpy() + ego_jes[i] + other_jes[i]
+        print(losses[i])
     return losses
 
 

@@ -188,7 +188,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
-    train_dataset = WaymoDataset(dataset_cfg, 'validation')
+    train_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
     print('len:', len(train_dataset))
 
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
@@ -255,9 +255,13 @@ if __name__ == "__main__":
         egojes = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
         otherjes = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
         for k in range(cfg['model_cfg']['prop_num']):
-            ego_future_path = coord[:, k]
-            data['misc'][:, 0, 11:, :2] = ego_future_path
-            data['misc'][:, 0, 11:, -2].fill_(1)
+            for i in range(coord.shape[0]):
+                ego_future_path = coord[i, k]
+                tmp = torch.where(data['tracks_to_predict'][i]==True)
+                idx = torch.where(data['tracks_to_predict'][i]==True)[0][0]
+                data['misc'][i, idx, 11:, :2] = ego_future_path
+                path = data['misc'][i, idx].detach().cpu().numpy()
+                data['misc'][i, idx, 11:, -2].fill_(1)
 
             ora_coord, ora_score, ora_new_data = oracle_model(data)
             loss, dloss, egoj, otherj = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
@@ -271,27 +275,31 @@ if __name__ == "__main__":
         dist = torch.norm(dist, dim=-1, p=2)
         gt_idx = dist.argsort(dim=-1).cpu()
         # losses, dlosses, egojes, otherjes, gt_idx
-        a.append(losses)
-        b.append(dlosses)
-        cc.append(egojes)
-        d.append(otherjes)
-        e.append(score[:, 0, :].detach().cpu())
+        a.append(losses.argsort(dim=-1))
+        b.append(dlosses.argsort(dim=-1))
+        cc.append(egojes.argsort(dim=-1))
+        d.append(otherjes.argsort(dim=-1))
+        e.append(pred_idx)
         g.append(gt_idx)
         xxx += 1
         if xxx == 10:
             break
-    a = torch.cat(a, dim=0).unsqueeze(-1)
-    b = torch.cat(b, dim=0).unsqueeze(-1)
-    cc = torch.cat(cc, dim=0).unsqueeze(-1)
-    d = torch.cat(d, dim=0).unsqueeze(-1)
-    e = torch.cat(e, dim=0).unsqueeze(-1)
+    a = torch.cat(a, dim=0).unsqueeze(-1).type(torch.float)
+    b = torch.cat(b, dim=0).unsqueeze(-1).type(torch.float)
+    cc = torch.cat(cc, dim=0).unsqueeze(-1).type(torch.float)
+    d = torch.cat(d, dim=0).unsqueeze(-1).type(torch.float)
+    e = torch.cat(e, dim=0).unsqueeze(-1).type(torch.float)
     g = torch.cat(g, dim=0).unsqueeze(-1).type(torch.float)
     p = torch.cat([a,b,cc,d,e,g], dim=-1).reshape(-1, 6)
-
+    p = torch.nn.functional.normalize(p, dim=0, p=2)
     print(p.shape)
 
     import pandas as pd
     px = pd.DataFrame(p.detach().numpy())
     corrMatrix = px.corr()
     print(corrMatrix)
+    import seaborn as sn
+    import matplotlib.pyplot as plt
+    sn.heatmap(corrMatrix, annot=True)
+    plt.savefig('./canvas/corr_int.png')
 

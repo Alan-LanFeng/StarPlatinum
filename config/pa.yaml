@@ -14,7 +14,7 @@ dataset_cfg:
   shrink: True
   dataset_dir: '/data/uncompressed/trans_val'
   # dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
-  shuffle: True
+  shuffle: False
   batch_size: 4
   num_workers: 0
 
