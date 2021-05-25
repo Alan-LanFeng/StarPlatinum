@@ -1,19 +1,19 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF_rg'
+model_name: 'STF_hi_v3'
 track: 'motion'
 
 # dataset related
 dataset_cfg:
   cache: True
-  cache_name: 'cache1'
+  cache_name: 'cache2'
   shrink: False
   dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
   #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
   batch_size: 64
-  num_workers: 4
+  num_workers: 8
 
 # model related
 model_cfg:

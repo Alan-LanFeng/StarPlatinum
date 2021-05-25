@@ -20,9 +20,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_hi(STF):
+class STF_hi_v3(STF):
     def __init__(self, cfg):
-        super(STF_hi, self).__init__(cfg)
+        super(STF_hi_v3, self).__init__(cfg)
         prop_num = cfg['prop_num']
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -93,13 +93,16 @@ class STF_hi(STF):
         # TODO: lane module
         # TODO: Traffic_light module
         # TODO: high-order interaction module
+        K = hist_out.shape[-2]
+        hist_out = hist_out.reshape(hist_out.shape[0],-1,hist_out.shape[-1])
         social_valid_len = data['valid_len'][:, 1] + 1
-        social_mask = torch.zeros((batch_size, 1, max_agent)).to(hist_out.device)
+        social_mask = torch.zeros((batch_size, 1, max_agent*K)).to(hist_out.device)
         for i in range(batch_size):
-            social_mask[i, 0, :social_valid_len[i]] = 1
-        social_emb = self.social_emb(hist_out.view(*hist_out.shape[:2], -1))
-        social_mem = self.social_enc(social_emb, social_mask)
-        social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
+            social_mask[i, 0, :social_valid_len[i]*K] = 1
+        #social_emb = self.social_emb(hist_out.view(*hist_out.shape[:2], -1))
+        social_mem = self.social_enc(hist_out, social_mask)
+        hist_out = hist_out.reshape(hist_out.shape[0],-1,6,128)
+        social_out = social_mem.reshape(social_mem.shape[0],-1,6,128)
         out = torch.cat([social_out, hist_out], -1)
 
         gather_list, new_data = self._gather_new_data(data, max_agent)

@@ -20,9 +20,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_hi(STF):
+class STF_hi_v2(STF):
     def __init__(self, cfg):
-        super(STF_hi, self).__init__(cfg)
+        super(STF_hi_v2, self).__init__(cfg)
         prop_num = cfg['prop_num']
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -32,7 +32,7 @@ class STF_hi(STF):
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
-        pos_dim = 16
+        pos_dim = 128
         # num of proposal
         self.social_emb = nn.Sequential(
             nn.Linear(prop_num * d_model, d_model, bias=True),
@@ -47,11 +47,16 @@ class STF_hi(STF):
             nn.LayerNorm(pos_dim),
             nn.ReLU(),
             nn.Linear(pos_dim, pos_dim, bias=True))
+
         self.yaw_emb = nn.Sequential(
-            nn.Linear(2, pos_dim, bias=True),
+            nn.Linear(1, pos_dim, bias=True),
+            nn.LayerNorm(pos_dim),
+            nn.ReLU(),
+            nn.Linear(pos_dim, pos_dim, bias=True),
             nn.LayerNorm(pos_dim),
             nn.ReLU(),
             nn.Linear(pos_dim, pos_dim, bias=True))
+
 
         self.fusion1cent = nn.Sequential(
             nn.Linear(d_model + pos_dim, d_model, bias=True),
@@ -72,9 +77,10 @@ class STF_hi(STF):
         hist = data['hist'][:, :max_agent]
         center = hist[...,-1,2:]
         yaw = data['misc'][:,:max_agent,10,4]
-        yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
+        yaw1 = yaw.unsqueeze(-1).repeat(1,1,128).unsqueeze(-1)
         center_emb = self.cent_emb(center)
-        yaw_emb = self.yaw_emb(yaw_1)
+        yaw_emb = self.yaw_emb(yaw1)
+        # yaw_emb = self.yaw_emb(yaw_1)
 
         hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
@@ -85,11 +91,15 @@ class STF_hi(STF):
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                        1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
-        hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        hist_out = self.fusion1cent(hist_out)
-        hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        hist_out = self.fusion1yaw(hist_out)
-
+        # hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        # hist_out = self.fusion1cent(hist_out)
+        # hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        # hist_out = self.fusion1yaw(hist_out)
+        center_emb = center_emb.unsqueeze(-2).repeat(1,1,6,1)
+        hist_out+=center_emb
+        yaw_emb = yaw_emb.unsqueeze(-3).repeat(1,1,6,1,1)
+        hist_out = hist_out.unsqueeze(-1)
+        hist_out = torch.matmul(yaw_emb,hist_out).squeeze(-1)
         # TODO: lane module
         # TODO: Traffic_light module
         # TODO: high-order interaction module

@@ -1,7 +1,7 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF_hi'
+model_name: 'STF_hi_v1'
 track: 'motion'
 
 # dataset related

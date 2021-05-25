@@ -11,9 +11,9 @@ from models.STF import STF
 import copy
 
 
-class STF_rg_hi_pyf(STF):
+class STF_all_pyf_v1(STF):
     def __init__(self, cfg):
-        super(STF_rg_hi_pyf, self).__init__(cfg)
+        super(STF_all_pyf_v1, self).__init__(cfg)
 
         # num of proposal
         prop_num = cfg['prop_num']
@@ -22,7 +22,7 @@ class STF_rg_hi_pyf(STF):
         dropout = cfg['dropout']
         N = cfg['model_layers_num']
         dec_out_size = cfg['out_dims']
-        pos_dim = 64
+        pos_dim = 16
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
@@ -45,21 +45,40 @@ class STF_rg_hi_pyf(STF):
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-        self.pos_emb = nn.Sequential(
-            nn.Linear(3, pos_dim, bias=True),
+
+        self.cent_emb = nn.Sequential(
+            nn.Linear(2, pos_dim, bias=True),
             nn.LayerNorm(pos_dim),
             nn.ReLU(),
             nn.Linear(pos_dim, pos_dim, bias=True))
-        self.fusion1 = nn.Sequential(
+        self.yaw_emb = nn.Sequential(
+            nn.Linear(2, pos_dim, bias=True),
+            nn.LayerNorm(pos_dim),
+            nn.ReLU(),
+            nn.Linear(pos_dim, pos_dim, bias=True))
+
+        self.fusion1cent = nn.Sequential(
             nn.Linear(d_model + pos_dim, d_model, bias=True),
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
-        self.fusion2 = nn.Sequential(
+        self.fusion1yaw = nn.Sequential(
             nn.Linear(d_model + pos_dim, d_model, bias=True),
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
+
+        self.fusion2cent = nn.Sequential(
+            nn.Linear(d_model + pos_dim, d_model, bias=True),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model, bias=True))
+        self.fusion2yaw = nn.Sequential(
+            nn.Linear(d_model + pos_dim, d_model, bias=True),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model, bias=True))
+
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
@@ -72,7 +91,10 @@ class STF_rg_hi_pyf(STF):
         hist = data['hist'][:, :max_agent]
         center = hist[...,-1,2:]
         yaw = data['misc'][:,:max_agent,10,4]
-        pos = torch.cat([center,yaw.unsqueeze(-1)],-1)
+        yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
+        center_emb = self.cent_emb(center)
+        yaw_emb = self.yaw_emb(yaw_1)
+        #pos = torch.cat([center,yaw.unsqueeze(-1)],-1)
 
         hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
@@ -84,13 +106,19 @@ class STF_rg_hi_pyf(STF):
                                                                                                        1, 1)
         hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
 
-        pos = self.pos_emb(pos)
-        hist_out = torch.cat([pos.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
-        hist_out = self.fusion1(hist_out)
+        # fusion pos
+        hist_out = torch.cat([center_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion1cent(hist_out)
+        hist_out = torch.cat([yaw_emb.unsqueeze(dim=2).repeat(1, 1, self.query_batches.shape[-2], 1), hist_out], dim=-1)
+        hist_out = self.fusion1yaw(hist_out)
 
-
+        # ts module
+        lane_vector = torch.cat(
+            [data['traffic_light'].view(*data['traffic_light'].shape, 1, 1).repeat(1, 1, 9, 1), data['lane_vector']],
+            -1)
+        lane_vector[data['lane_vector'][..., -1] == 0] = 0
         # rg module
-        lane = data['lane_vector'][:, :max_lane]
+        lane = lane_vector[:, :max_lane]
         lane_enc = self.lanenet(lane)
         lane_valid_len = data['valid_len'][:, 0]
         lane_mask = torch.zeros((batch_size, 1, max_lane)).to(lane_enc.device)
@@ -111,7 +139,12 @@ class STF_rg_hi_pyf(STF):
         for i in range(batch_size):
             social_mask[i, 0, :social_valid_len[i]] = 1
         social_emb = self.social_emb(lane_out.view(*lane_out.shape[:2], -1))
-        social_emb = self.fusion2(torch.cat([pos, social_emb], -1))
+
+        social_emb = torch.cat([center_emb, social_emb], dim=-1)
+        social_emb = self.fusion2cent(social_emb)
+        social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
+        social_emb = self.fusion2yaw(social_emb)
+
         social_mem = self.social_enc(social_emb, social_mask)
         social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
         out = torch.cat([social_out, lane_out], -1)
