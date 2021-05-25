@@ -1,4 +1,5 @@
 import torch
+
 eps = 1e-9
 
 
@@ -31,9 +32,11 @@ class Loss(torch.nn.Module):
 
         reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask)  # Huber Loss
 
+        crash_loss = self.crash_loss(tracks_to_predict, pred_cum, data['centroid'], data['misc'], index, gt_mask)
+
         miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint)
 
-        losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss}
+        losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss, 'crash_loss': crash_loss}
 
         loss = self.K * reg_loss + cls_loss
 
@@ -56,6 +59,22 @@ class Loss(torch.nn.Module):
         agent_sum = max(predict_flag.sum(), 1)
         cls_loss = cls_loss_sum / agent_sum
         return cls_loss
+
+    def crash_loss(self, predict_flag, pred, center, misc, expected_traj_index, gt_mask):
+        expected_traj_index = expected_traj_index.view(*expected_traj_index.shape, 1, 1, 1).repeat(
+            (1, 1, 1, *pred.shape[3:]))  # [batch_size, nbrs_num+1, K, 30, 2]
+        best_pred = torch.gather(pred, dim=-3, index=expected_traj_index).squeeze(2)
+        yaw = misc[..., 10, 4].unsqueeze(-1)
+        s, c = torch.sin(yaw), torch.cos(yaw)
+        best_pred[..., 0], best_pred[..., 1] = c * best_pred[..., 0] - s * best_pred[..., 1], \
+                                               s * best_pred[..., 0] + c * best_pred[..., 1]
+        best_pred += center.unsqueeze(2)
+        ego_gt = misc[:, 0, 11:, :2]
+        dist = torch.norm(best_pred - ego_gt.unsqueeze(1), p=2, dim=-1)
+        loss = torch.max(3.0 - dist, torch.zeros_like(dist)) * gt_mask
+        loss = loss.sum(-1)
+        loss = (loss[:, 1:] * predict_flag[:, 1:]).sum(-1) / (predict_flag[:, 1:].sum(-1)+1)
+        return loss.mean()
 
     def huber_loss(self, predict_flag, pred, gt, expected_traj_index, gt_mask):
         '''
@@ -87,7 +106,12 @@ class Loss(torch.nn.Module):
                 # ? which kinds of multi task loss suits our task.s
                 total_loss += (2 * self.auxiliary_params[i]) ** -2 * loss + torch.log(self.auxiliary_params[i] ** 2 + 1)
         else:
-            total_loss = self.loss_cfg['k'] * losses['reg_loss']['loss'] + losses['cls_loss']['loss']
+            if 'crashk' in self.loss_cfg:
+                crashk = self.loss_cfg['crashk']
+            else:
+                crashk = 0
+            total_loss = self.loss_cfg['k'] * losses['reg_loss']['loss'] + losses['cls_loss']['loss']\
+                         + losses['crash_loss']['loss']*crashk
 
         losses_text = ''
         for loss_name in losses:
