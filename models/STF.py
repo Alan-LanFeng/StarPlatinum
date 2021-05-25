@@ -68,6 +68,7 @@ class STF(nn.Module):
     def _exp_hist_with_ego_gt(self, data: dict, hist: torch.Tensor, hist_mask: torch.Tensor,
                              center: torch.Tensor, yaw: torch.Tensor):
         batch_size, car_num, horizon, channels = hist.shape
+        self.device = hist.get_device()
         exp_hist = torch.zeros([batch_size, car_num, 90, channels]).to(self.device)
         exp_hist_mask = torch.zeros([batch_size, car_num, 1, 90]).to(self.device)
         exp_hist[:, :, :10, :] = hist.detach().clone()
