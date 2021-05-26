@@ -12,7 +12,7 @@ dataset_cfg:
   dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
   #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
-  batch_size: 16
+  batch_size: 64
   num_workers: 8
 
 # model related

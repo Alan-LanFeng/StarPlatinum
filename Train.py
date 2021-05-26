@@ -45,12 +45,12 @@ if __name__ == "__main__":
     train_dataset = WaymoDataset(dataset_cfg, 'training')
     print('len:', len(train_dataset))
 
-    train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'] * gpu_num,
+    train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
 
     val_dataset = WaymoDataset(dataset_cfg, 'validation')
-    val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'] * gpu_num,
+    val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
     evaluator = WODEvaluator(cfg, device,val_loader)
