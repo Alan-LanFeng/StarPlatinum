@@ -115,7 +115,7 @@ if __name__ == "__main__":
                 losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
             progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, miss_rate * 100))
 
-            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
+            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'], "loss/crash": losses['crash_loss'], 
                         'MR': miss_rate}
 
             for k, v in log_dict.items():
