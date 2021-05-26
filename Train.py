@@ -45,12 +45,12 @@ if __name__ == "__main__":
     train_dataset = WaymoDataset(dataset_cfg, 'training')
     print('len:', len(train_dataset))
 
-    train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
+    train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'] * gpu_num,
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
 
     val_dataset = WaymoDataset(dataset_cfg, 'validation')
-    val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
+    val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'] * gpu_num,
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
     evaluator = WODEvaluator(cfg, device,val_loader)
@@ -115,7 +115,7 @@ if __name__ == "__main__":
                 losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
             progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, miss_rate * 100))
 
-            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
+            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'], "loss/crash": losses['crash_loss'], 
                         'MR': miss_rate}
 
             for k, v in log_dict.items():
