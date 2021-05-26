@@ -48,8 +48,10 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
-
-    val_dataset = WaymoDataset(dataset_cfg, 'validation')
+    if cfg['track'] == 'interaction':
+        val_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
+    else:
+        val_dataset = WaymoDataset(dataset_cfg, 'validation')
     val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
@@ -102,7 +104,7 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
             output = model(data)
-            loss, losses, miss_rate = criterion(output)
+            loss, losses, miss_rate = criterion(output,cfg['track'])
             loss.backward()
             nn.utils.clip_grad_norm_(
                 model.parameters(), max_norm=train_cfg['max_norm_gradient'])

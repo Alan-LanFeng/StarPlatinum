@@ -165,6 +165,17 @@ class WODEvaluator(object):
                     def select(x):
                         return x[predict_flag]
 
+                    pred = select(coord).permute(0, 2, 1, 3, 4).cumsum(
+                        -2)  # batch_size, K, car_num, horizon, 2
+                    batch_size, K, car_num, horizon, c = pred.shape
+                    yaw = select(yaw)
+                    centroid = select(centroid)
+                    s, c = torch.sin(yaw), torch.cos(yaw)
+                    s, c = s.view(batch_size, 1, 2, 1), c.view(batch_size, 1, 2, 1)
+                    pred[..., 0], pred[..., 1] = c * pred[..., 0] - s * pred[..., 1], \
+                                                 s * pred[..., 0] + c * pred[..., 1]
+                    pred += centroid.view(batch_size, 1, 2, 1, 2)
+                    pred = pred[..., (interval - 1)::interval, :]
                     misc = select(new_data['misc'])
                     gt = misc[..., :7]
                     gt_is_valid = misc[..., 7] > 0
@@ -180,18 +191,18 @@ class WODEvaluator(object):
                 with suppress_stdout_stderr():
                     x1, x2, x3, x4, x5 = T(pred), T(score), T(gt), T(gt_is_valid), T(object_type)
                     res = py_metrics_ops.motion_metrics(config=self.metric_default_cfg,
-                                                        prediction_trajectory=x1,
-                                                        prediction_score=x2,
-                                                        ground_truth_trajectory=x3,
-                                                        ground_truth_is_valid=x4,
-                                                        object_type=x5)
+                                                            prediction_trajectory=x1,
+                                                            prediction_score=x2,
+                                                            ground_truth_trajectory=x3,
+                                                            ground_truth_is_valid=x4,
+                                                            object_type=x5)
                 resl = [res.min_ade, res.min_fde, res.miss_rate, res.overlap_rate, res.mean_average_precision]
                 assert 1 == 1
                 for k in range(3):
                     if self.mode == 'motion':
                         showtime = ((object_type == k + 1) * (gt_is_valid.sum(-1) > 0)).sum()
                     else:
-                        showtime = ((object_type[:, 0] == k + 1) * (gt_is_valid.sum(-1) > 0)).sum()
+                        showtime = ((object_type[:, 0] == k + 1) * (gt_is_valid.sum(-1) > 0).sum(-1)>0).sum()
 
                     if showtime == 0:
                         continue

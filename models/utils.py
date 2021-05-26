@@ -430,7 +430,13 @@ class GeneratorWithInteraction(nn.Module):
             nn.LayerNorm(reg_h_dim * 2),
             nn.ReLU(),
         )
-        self.reg_mlp = nn.Sequential(
+        self.reg_mlp1 = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.Linear(reg_h_dim, out_size, bias=True))
+        self.reg_mlp2= nn.Sequential(
             nn.Linear(d_model, reg_h_dim * 2, bias=True),
             nn.LayerNorm(reg_h_dim * 2),
             nn.ReLU(),
@@ -451,7 +457,9 @@ class GeneratorWithInteraction(nn.Module):
         self.cls_opt = nn.LogSoftmax(dim=-1)
 
     def forward(self, x):
-        pred = self.reg_mlp(x)
+        pred1 = self.reg_mlp1(x[:,0,:,:]).unsqueeze(1)
+        pred2 = self.reg_mlp2(x[:,1,:,:]).unsqueeze(1)
+        pred = torch.cat([pred1,pred2],1)
         pred = pred.view(*pred.shape[0:3], -1, 2)  # .cumsum(dim=-2)
         # return pred
         x = torch.transpose(x, 1, 2)
@@ -830,6 +838,30 @@ class ChoiceHead(nn.Module):
         k = pred_coord.shape[2]
         pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape, 1, 1, 1, 1).repeat(1, 1, k, 80, 2, 1))
         pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1, 1).repeat(1, 1, k, 1))
+        pred_coord = pred_coord.squeeze(-1)
+        pred_class = pred_class.squeeze(-1)
+        return pred_coord, pred_class
+
+class intChoiceHead(nn.Module):
+    def __init__(self, d_model, out_size, dropout, choices=3):
+        super(intChoiceHead, self).__init__()
+        self.model_list = nn.ModuleList(
+            [GeneratorWithInteraction(d_model, out_size, dropout) for i in range(choices)])
+
+    def forward(self, x, idx):
+        pred_coord, pred_class = [], []
+        for m in self.model_list:
+            res1, res2 = m(x)
+            pred_coord.append(res1.unsqueeze(-1))
+            pred_class.append(res2.unsqueeze(-1))
+        pred_coord = torch.cat(pred_coord, dim=-1)
+        pred_class = torch.cat(pred_class, dim=-1)
+        #idx = idx - (idx > 0).int()
+        idx = idx[...,1]
+        idx = idx - (idx > 0).int()
+        k = pred_coord.shape[2]
+        pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape,1, 1, 1, 1, 1).repeat(1,2,  k, 80, 2, 1))
+        pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1,1).repeat(1, k, 1))
         pred_coord = pred_coord.squeeze(-1)
         pred_class = pred_class.squeeze(-1)
         return pred_coord, pred_class
