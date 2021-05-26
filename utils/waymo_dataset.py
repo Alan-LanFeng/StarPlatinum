@@ -239,7 +239,9 @@ class WaymoDataset(Dataset):
         # predict list
         motion_list = data['tracks_to_predict'][current_valid_index]
         interaction_list = data['objects_of_interest'][current_valid_index]
+        out['misc'] = out['misc'][current_valid_index]
         out['tracks_to_predict'] = np.pad(motion_list, [0, MAX_NBRS_NUM + 1 - valid_agent_num]).astype(bool)
+        out['misc'] = np.pad(out['misc'], [[0, MAX_NBRS_NUM + 1 - valid_agent_num], [0,0], [0,0]])
         out['objects_of_interest'] = np.pad(interaction_list, [0, MAX_NBRS_NUM + 1 - valid_agent_num]).astype(bool)
 
         # obj type
