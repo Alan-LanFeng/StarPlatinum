@@ -47,21 +47,21 @@ class WaymoDataset(Dataset):
     def __getitem__(self, index):
         cache_root = self.root[:self.root.find('trans')]
         cache_file = os.path.join(cache_root, self.cache_name, self.period, f'{index}.pkl')
-        try:
+        if self.cache:
             with open(cache_file, 'rb') as f:
                 data = pickle.load(f)
             return data
-        except:
+        else:
             file_path = os.path.join(self.path, f'{index}.pkl')
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)
             data =  self.process(data)
-
-            if not os.path.exists(cache_file):
-                os.mknod(cache_file)
-            with open(cache_file, 'wb') as f:
-                pickle.dump(data, f)
             return data
+            # if not os.path.exists(cache_file):
+            #     os.mknod(cache_file)
+            # with open(cache_file, 'wb') as f:
+            #     pickle.dump(data, f)
+            # return data
 
 
 
@@ -244,12 +244,12 @@ class WaymoDataset(Dataset):
 
         # obj type
         out['obj_type'] = np.pad(all_traj[:, CURRENT, 9], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
-        try:
-            out['id'] = str(data['id'][0], 'utf-8')
-            out['theta'] = data['theta']
-            out['center'] = data['center']
-        except:
-            pass
+        # try:
+        #     out['id'] = str(data['id'][0], 'utf-8')
+        #     out['theta'] = data['theta']
+        #     out['center'] = data['center']
+        # except:
+        #     pass
 
         return out
 
@@ -261,12 +261,10 @@ if __name__ == '__main__':
     cfg = load_config_data(f"../config/{args.cfg}.yaml")
     dataset_cfg = cfg['dataset_cfg']
     dataset_cfg['cache'] = False
-    dataset_cfg['shrink'] = True
-
     dir = dataset_cfg['dataset_dir']
     cache_root = dir[:dir.find('trans')]
 
-    periods = ['training', 'validation', 'testing', 'validation_interactive', 'testing_interactive']
+    periods = ['training', 'validation', 'validation_interactive']
     batch_size = 64
 
     for period in periods:
@@ -281,17 +279,22 @@ if __name__ == '__main__':
             except:
                 pass
 
+            cache_root = 's3://prediction/data/wod'
             path_name = os.path.join(cache_root, dataset_cfg['cache_name'], period)
-            if not os.path.exists(path_name):
-                os.makedirs(path_name)
+            # if not os.path.exists(path_name):
+            #     os.makedirs(path_name)
             for i in range(batch_size):
                 cache_file = os.path.join(path_name, f'{cnt}.pkl')
+                # if not os.path.exists(cache_file):
+                #     os.mknod(cache_file)
+                data = {k: v[i] for k, v in data.items()}
 
-                if not os.path.exists(cache_file):
-                    os.mknod(cache_file)
-                try:
-                    with open(cache_file, 'wb') as f:
-                        pickle.dump({k: v[i] for k, v in data.items()}, f)
-                except:
-                    pass
+                from petrel_client.client import Client
+                ceph = Client('~/petreloss.conf')
+                ceph.put(cache_file, pickle.dumps(data))
+                # try:
+                #     with open(cache_file, 'wb') as f:
+                #         pickle.dump({k: v[i] for k, v in data.items()}, f)
+                # except:
+                #     pass
                 cnt += 1

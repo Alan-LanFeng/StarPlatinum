@@ -20,3 +20,5 @@
 *.model
 *.log
 .idea/*
+*.bin
+*.gz
