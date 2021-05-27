@@ -25,7 +25,7 @@ if os.path.exists(cache_root):
                     ped += 1
                 if 3 in obj_type:
                     cyc += 1
-                    for i range(4):
+                    for i in range(4):
                         with open(os.path.join(path, f'{cnt}.pkl'), 'wb') as ff:
                             pickle.dump(data, ff)
                             cnt += 1
