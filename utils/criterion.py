@@ -100,7 +100,7 @@ class Loss(torch.nn.Module):
         loss = (loss[:, 1:] * predict_flag[:, 1:]).sum(-1) / (predict_flag[:, 1:].sum(-1)+1)
         return loss.mean()
 
-    def huber_loss(self, predict_flag, pred, gt, expected_traj_index, gt_mask,track):
+    def huber_loss(self, predict_flag, pred, gt, expected_traj_index, gt_mask,track='motion'):
         '''
             params:
                 score: the predicted traj
