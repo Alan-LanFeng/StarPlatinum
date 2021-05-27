@@ -27,7 +27,7 @@ if os.path.exists(cache_root):
                     cyc += 1
                     for i range(4):
                         with open(os.path.join(path, f'{cnt}.pkl'), 'wb') as ff:
-                            pickle.dump(data, dump)
+                            pickle.dump(data, ff)
                             cnt += 1
                             print(f'new file {cnt}.pkl!')
             progress.set_description(desc=f'car-{car}-ped-{ped}-cyc-{cyc}')
