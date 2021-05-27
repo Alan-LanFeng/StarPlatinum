@@ -32,11 +32,11 @@ class Loss(torch.nn.Module):
             tracks_to_predict = data['tracks_to_predict']
             cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat,track)  # Margin Loss
 
-            reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask)  # Huber Loss
+            reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask,track)  # Huber Loss
 
             crash_loss = self.crash_loss(tracks_to_predict, pred_cum, data['centroid'], data['misc'], index, gt_mask)
 
-            miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint)
+            miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint,track)
 
             losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss, 'crash_loss': crash_loss}
 
@@ -45,12 +45,13 @@ class Loss(torch.nn.Module):
             dis_mat = torch.max(torch.transpose(dis_mat,1,2),-1).values
             index = torch.argmin(dis_mat, dim=-1)
             tracks_to_predict = data['tracks_to_predict']
+            tracks_to_predict = (tracks_to_predict[:,0]*tracks_to_predict[:,1]).unsqueeze(-1)
             cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat,track)
             reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask,track)  # Huber Loss
 
             #crash_loss = self.crash_loss(tracks_to_predict, pred_cum, data['centroid'], data['misc'], index, gt_mask)
 
-            miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint)
+            miss_rate = self.cal_total_miss_rate(tracks_to_predict, gt_end_point, pred_endpoint,track)
 
             losses = {'reg_loss': reg_loss, 'cls_loss': cls_loss, 'crash_loss': 0}
 
@@ -70,7 +71,7 @@ class Loss(torch.nn.Module):
             target = torch.nn.Softmax(dim=-1)(-dis_mat / self.alpha)
             KL_loss = torch.nn.KLDivLoss(reduction='none')(score, target)
 
-            predict_flag = (predict_flag[:,0]*predict_flag[:,1]).unsqueeze(-1).repeat(1,KL_loss.shape[-1])
+
             cls_loss = (KL_loss * predict_flag).sum()/dis_mat.shape[0]
         else:
             dis_mat = dis_mat.detach()
@@ -125,12 +126,11 @@ class Loss(torch.nn.Module):
 
             best_pred = torch.gather(pred, dim=-3, index=expected_traj_index).squeeze(2)
             reg_loss = torch.nn.SmoothL1Loss(reduction='none')(best_pred, gt).mean(-1)
-
-            loss_sum = ((reg_loss * gt_mask).sum(dim=-1)) * predict_flag
+            loss_sum = ((reg_loss * gt_mask).sum(dim=-1))*predict_flag
             gt_sum = gt_mask.sum(dim=-1)
             gt_sum[gt_sum == 0] = 1
             mean_agent_loss = loss_sum / gt_sum
-            agent_sum = max(predict_flag.sum(), 1)
+            agent_sum = max(predict_flag.sum(), 1)*2
             reg_loss = mean_agent_loss.sum() / agent_sum
         return reg_loss
 
@@ -156,7 +156,7 @@ class Loss(torch.nn.Module):
 
         return total_loss, losses_text
 
-    def cal_total_miss_rate(self, predict_flag, target_endpoint, prediction_endpoint):
+    def cal_total_miss_rate(self, predict_flag, target_endpoint, prediction_endpoint,track):
         '''
             predict_flag:       [batch, car]
             prediction_endpoint: [batch, nbrs_num+1, K, 2]
@@ -165,5 +165,7 @@ class Loss(torch.nn.Module):
 
         inside_mask = (torch.norm(target_endpoint - prediction_endpoint, p=2, dim=-1) < 8.0)
         missed = (inside_mask.sum(dim=(-1)) == 0) * predict_flag
+        if track=='interaction':
+            missed = missed[:,0]*missed[:,1]
         mr = missed.sum() / max(predict_flag.sum().float(), 1)
         return mr

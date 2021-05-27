@@ -81,6 +81,14 @@ class STF_the_world(STF):
         max_lane = torch.max(valid_len[:, 1])
         max_adj_lane = torch.max(valid_len[:, 2])
 
+        # ============================one hot=======================
+        obj_type = data['obj_type'][:,:max_agent]
+        one_hot = torch.zeros([obj_type.shape[0],max_agent,3]).to(obj_type.device)
+        one_hot[obj_type==1] = torch.Tensor([1,0,0])
+        one_hot[obj_type==2] = torch.Tensor([0,1,0])
+        one_hot[obj_type==3] = torch.Tensor([0,0,1])
+        one_hot = one_hot.unsqueeze(-2).repeat(1,1,10,1)
+
         # =======================================trajectory module===================================
         hist = data['hist'][:, :max_agent]
         center = data['hist'][:, :max_agent][...,-1,2:].detach().clone()
@@ -94,6 +102,8 @@ class STF_the_world(STF):
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[...,:2] = self._rotate(hist[...,:2],yaw)
         hist[...,2:4] = self._rotate(hist[...,2:4],yaw)
+
+        hist = torch.cat([hist, one_hot], -1)
 
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
@@ -150,7 +160,6 @@ class STF_the_world(STF):
         # Star Platinum, the world!
         gather_out = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *out.shape[-2:])
         out = torch.gather(out, 1, gather_out)
-
         outputs_coord, outputs_class = self.prediction_head(out, new_data['obj_type'])
 
         return outputs_coord, outputs_class, new_data

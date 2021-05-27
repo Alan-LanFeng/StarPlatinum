@@ -10,7 +10,7 @@ dataset_cfg:
   cache_name: 'cache4'
   shrink: True
   dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
-  dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
+  #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
   batch_size: 32
   num_workers: 8
@@ -19,7 +19,7 @@ dataset_cfg:
 model_cfg:
   #vector net related
   lane_dims: 11
-  traj_dims: 4
+  traj_dims: 7
   out_dims: 160
   subgraph_width_unit: 32
   num_subgraph_layers: 2

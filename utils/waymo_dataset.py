@@ -56,9 +56,7 @@ class WaymoDataset(Dataset):
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)
             data =  self.process(data)
-            cache_dir = os.path.join(cache_root, self.cache_name, self.period)
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
+
             if not os.path.exists(cache_file):
                 os.mknod(cache_file)
             with open(cache_file, 'wb') as f:
@@ -247,7 +245,7 @@ class WaymoDataset(Dataset):
         # obj type
         out['obj_type'] = np.pad(all_traj[:, CURRENT, 9], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
         try:
-            out['state_id'] = str(data['id'][0], 'utf-8')
+            out['id'] = str(data['id'][0], 'utf-8')
             out['theta'] = data['theta']
             out['center'] = data['center']
         except:

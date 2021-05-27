@@ -72,6 +72,16 @@ class STF_golden_wind(STF):
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
+        # self.social_emb_ped = nn.Sequential(
+        #     nn.Linear(prop_num * d_model, d_model, bias=True),
+        #     nn.LayerNorm(d_model),
+        #     nn.ReLU(),
+        #     nn.Linear(d_model, d_model, bias=True))
+        # self.social_emb_cyc = nn.Sequential(
+        #     nn.Linear(prop_num * d_model, d_model, bias=True),
+        #     nn.LayerNorm(d_model),
+        #     nn.ReLU(),
+        #     nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
 
 
@@ -80,6 +90,15 @@ class STF_golden_wind(STF):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
         gather_list, new_data = self._gather_new_data(data, max_agent)
+        obj_type = new_data['obj_type']
+        # =============one_hot===============
+        one_hot = torch.zeros([obj_type.shape[0],obj_type.shape[1],3]).to(obj_type.device)
+        one_hot[obj_type==1] = torch.Tensor([1,0,0])
+        one_hot[obj_type==2] = torch.Tensor([0,1,0])
+        one_hot[obj_type==3] = torch.Tensor([0,0,1])
+        one_hot = one_hot.unsqueeze(-2).repeat(1,1,10,1)
+
+        #==================one_hot===============
         max_agent = 2
         gather_adj_mask = gather_list.view(*gather_list.shape,1).repeat(1,1,660)
         adj_mask = torch.gather(data['adj_mask'],1,gather_adj_mask)
@@ -94,10 +113,6 @@ class STF_golden_wind(STF):
         yaw = new_data['misc'][:,:,10,4].detach().clone()
 
         # =======================================trajectory module===================================
-        # hist = data['hist'][:, :max_agent]
-        # center = data['hist'][:, :max_agent][...,-1,2:].detach().clone()
-        # yaw = data['misc'][:,:max_agent,10,4].detach().clone()
-
         yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
         center_emb = self.cent_emb(center)
         yaw_emb = self.yaw_emb(yaw_1)
@@ -106,6 +121,7 @@ class STF_golden_wind(STF):
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[...,:2] = self._rotate(hist[...,:2],yaw)
         hist[...,2:4] = self._rotate(hist[...,2:4],yaw)
+        hist = torch.cat([hist,one_hot],-1)
 
         #hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],

@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=train_cfg['lr_decay_per_epoch'],
                                           gamma=train_cfg['decay_rate'])
-
+    model = torch.nn.DataParallel(model, list(range(gpu_num)))
     if not args.local:
         model = torch.nn.DataParallel(model, list(range(gpu_num)))
         model = model.to(device)
