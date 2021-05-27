@@ -72,6 +72,7 @@ class STF_golden_wind(STF):
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
+
         # self.social_emb_ped = nn.Sequential(
         #     nn.Linear(prop_num * d_model, d_model, bias=True),
         #     nn.LayerNorm(d_model),
@@ -93,9 +94,9 @@ class STF_golden_wind(STF):
         obj_type = new_data['obj_type']
         # =============one_hot===============
         one_hot = torch.zeros([obj_type.shape[0],obj_type.shape[1],3]).to(obj_type.device)
-        one_hot[obj_type==1] = torch.Tensor([1,0,0])
-        one_hot[obj_type==2] = torch.Tensor([0,1,0])
-        one_hot[obj_type==3] = torch.Tensor([0,0,1])
+        one_hot[obj_type==1] = torch.Tensor([1,0,0]).to(obj_type.device)
+        one_hot[obj_type==2] = torch.Tensor([0,1,0]).to(obj_type.device)
+        one_hot[obj_type==3] = torch.Tensor([0,0,1]).to(obj_type.device)
         one_hot = one_hot.unsqueeze(-2).repeat(1,1,10,1)
 
         #==================one_hot===============
