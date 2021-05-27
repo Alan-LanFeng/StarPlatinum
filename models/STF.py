@@ -75,7 +75,7 @@ class STF(nn.Module):
         exp_hist_mask[:, :, :, :10] = hist_mask.detach().clone()
         for i in range(data['misc'].shape[0]):
             idx = torch.where(data['tracks_to_predict'][i] == True)[0][0]
-            ego_gt = data['misc'][i, idx, 10:, :2]# batch, 91, 2
+            ego_gt = data['misc'][i, idx, 10:, :2].detach().clone()# batch, 91, 2
             ego_gt[:, 0] -= center[i, idx, 0]
             ego_gt[:, 1] -= center[i, idx, 1]
             ego_gt[:, :2] = self._rotate(ego_gt[:, :2], yaw[i, idx])
