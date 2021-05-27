@@ -84,9 +84,9 @@ class STF_the_world(STF):
         # ============================one hot=======================
         obj_type = data['obj_type'][:,:max_agent]
         one_hot = torch.zeros([obj_type.shape[0],max_agent,3]).to(obj_type.device)
-        one_hot[obj_type==1] = torch.Tensor([1,0,0])
-        one_hot[obj_type==2] = torch.Tensor([0,1,0])
-        one_hot[obj_type==3] = torch.Tensor([0,0,1])
+        one_hot[obj_type==1] = torch.Tensor([1,0,0]).to(obj_type.device)
+        one_hot[obj_type==2] = torch.Tensor([0,1,0]).to(obj_type.device)
+        one_hot[obj_type==3] = torch.Tensor([0,0,1]).to(obj_type.device)
         one_hot = one_hot.unsqueeze(-2).repeat(1,1,10,1)
 
         # =======================================trajectory module===================================
