@@ -10,8 +10,13 @@ cyc = 0
 if os.path.exists(cache_root):
     g = os.walk(cache_root)
     for path, dir_list, file_list in g:
-        for file in tqdm(file_list):
-            with open(os.path.join(path, file), 'rb') as f:
+        if 'train' not in path:
+            continue
+        print(path)
+        progress = tqdm(file_list)
+        cnt = len(file_list)
+        for file_name in progress:
+            with open(os.path.join(path, file_name), 'rb') as f:
                 data = pickle.load(f)
                 obj_type = data['obj_type'][data['tracks_to_predict']]
                 if 1 in obj_type:
@@ -20,6 +25,12 @@ if os.path.exists(cache_root):
                     ped += 1
                 if 3 in obj_type:
                     cyc += 1
+                    for i range(4):
+                        with open(os.path.join(path, f'{cnt}.pkl'), 'wb') as ff:
+                            pickle.dump(data, dump)
+                            cnt += 1
+                            print(f'new file {cnt}.pkl!')
+            progress.set_description(desc=f'car-{car}-ped-{ped}-cyc-{cyc}')
 else:
     print(f'{cache_root} not exists!')
 print(car, ped, cyc)
