@@ -31,10 +31,15 @@ if __name__ == "__main__":
     device = 'cuda'
     mp.set_start_method('fork', force=True)
     # linklink
+    print('init')
     rank, world_size = dist_init()
+    print('init1')
     cfg = load_config_data(f"./config/{args.cfg}.yaml")
-    writer = SummaryWriter()
+    print('init2')
+    if rank == 0:
+        writer = SummaryWriter()
     # =================buidl model===================================================
+    print('build model')
     model = load_model_class(cfg['model_name'])
     model_cfg = cfg['model_cfg']
     model = model(model_cfg)
@@ -42,6 +47,7 @@ if __name__ == "__main__":
     model = DistModule(model, sync=True)
     model.cuda()
     # ==================================set up dataloader==========================================================
+    print('data loader')
     dataset_cfg = cfg['dataset_cfg']
     workers = dataset_cfg['num_workers']
     batch_size = dataset_cfg['batch_size']
@@ -63,6 +69,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset,batch_size=batch_size, num_workers=workers, sampler=sampler, shuffle=False, pin_memory=False)
 
     # ===================================optimizer======================================================
+    print('optimizer lr schedule evaluator criterion')
     train_cfg = cfg['train_cfg']
     optimizer = optim.AdamW(model.parameters(), lr=train_cfg['lr'], betas=(0.9, 0.999), eps=1e-09,
                             weight_decay=train_cfg['weight_decay'], amsgrad=True)
@@ -77,9 +84,7 @@ if __name__ == "__main__":
     # =================================== setup_criterion ============================================================
     loss_cfg = cfg['loss_cfg']
     criterion = Loss(loss_cfg, device)
-    if rank == 0:
-        writer = SummaryWriter()
-
+    print('start training')
     # start training
     for epoch in range(500):
         # train
@@ -119,11 +124,16 @@ if __name__ == "__main__":
                 losses['name'] = loss_cpy.item() / world_size
             link.allreduce(loss)
             link.allreduce(miss_rate)
+
+            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
+            'MR': miss_rate}
+
+            if step%1 == 0:
+                print(f'{step}/{len(train_loader)}: {log_dict}')
+            
             if rank == 0:
-                log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
-                            'MR': miss_rate}
-            for k, v in log_dict.items():
-                writer.add_scalar(k, v, step)
+                for k, v in log_dict.items():
+                    writer.add_scalar(k, v, step)
 
         if rank == 0:
             eval_dict = evaluator.evaluate(model)
@@ -139,6 +149,8 @@ if __name__ == "__main__":
             'saved_models', '{}_{}.pt'.format(args.model_name, epoch + 1))
 
         save_checkpoint(model_save_name, model, optimizer)
+
+        link.barrier()
     # finalize link
     finalize()
 
