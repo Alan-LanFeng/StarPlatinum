@@ -25,14 +25,15 @@ class Loss(torch.nn.Module):
                                                                                                      pred.shape[2], 1,
                                                                                                      2)).squeeze(-2)
         dis_mat = torch.norm((gt_end_point - pred_endpoint), p=2, dim=-1)
+        obj_type = data['obj_type']
         # [batch, nbrs_num+1, K]
         if track == 'motion':
             index = torch.argmin(dis_mat, dim=-1)  # [batch, nbrs_num+1, 1]
 
             tracks_to_predict = data['tracks_to_predict']
-            cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat,track)  # Margin Loss
+            cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat,track,obj_type)  # Margin Loss
 
-            reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask,track)  # Huber Loss
+            reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask,track,obj_type)  # Huber Loss
 
             crash_loss = self.crash_loss(tracks_to_predict, pred_cum, data['centroid'], data['misc'], index, gt_mask)
 
@@ -42,12 +43,12 @@ class Loss(torch.nn.Module):
 
             loss = self.K * reg_loss + cls_loss
         else:
-            dis_mat = torch.max(torch.transpose(dis_mat,1,2),-1).values
+            dis_mat = torch.mean(torch.transpose(dis_mat,1,2),-1)
             index = torch.argmin(dis_mat, dim=-1)
             tracks_to_predict = data['tracks_to_predict']
             tracks_to_predict = (tracks_to_predict[:,0]*tracks_to_predict[:,1]).unsqueeze(-1)
-            cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat,track)
-            reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask,track)  # Huber Loss
+            cls_loss = self.maxEntropyLoss(tracks_to_predict, conf, dis_mat,track,obj_type)
+            reg_loss = self.huber_loss(tracks_to_predict, pred, gt, index, gt_mask,track,obj_type)  # Huber Loss
 
             #crash_loss = self.crash_loss(tracks_to_predict, pred_cum, data['centroid'], data['misc'], index, gt_mask)
 
@@ -59,7 +60,7 @@ class Loss(torch.nn.Module):
 
         return loss, losses, miss_rate
 
-    def maxEntropyLoss(self, predict_flag, score, dis_mat,track):
+    def maxEntropyLoss(self, predict_flag, score, dis_mat,track,obj_type):
         '''
             params:
                 score[batch, num agents, K]: confidence of each traj
@@ -79,9 +80,19 @@ class Loss(torch.nn.Module):
             KL_loss = torch.nn.KLDivLoss(reduction='none')(score, target)
 
             predict_flag = predict_flag.unsqueeze(-1)
-            cls_loss_sum = (KL_loss * predict_flag).sum()
-            agent_sum = max(predict_flag.sum(), 1)
-            cls_loss = cls_loss_sum / agent_sum
+            cls_loss_sum = (KL_loss * predict_flag).sum(-1)
+            obj_type = obj_type*predict_flag.squeeze(-1)
+
+            veh = obj_type==1
+            ped = obj_type==2
+            cyc = obj_type==3
+            veh_loss = (cls_loss_sum * veh).sum() / max(veh.sum(),1)
+            ped_loss = (cls_loss_sum * ped).sum() / max(ped.sum(), 1)
+            cyc_loss = (cls_loss_sum * cyc).sum() / max(cyc.sum(), 1)
+            cls_loss = (veh_loss+ped_loss+cyc_loss)/3
+            # cls_loss_sum = (KL_loss * predict_flag).sum()
+            # agent_sum = max(predict_flag.sum(), 1)
+            # cls_loss = cls_loss_sum / agent_sum
 
         return cls_loss
 
@@ -101,7 +112,7 @@ class Loss(torch.nn.Module):
         loss = (loss[:, 1:] * predict_flag[:, 1:]).sum(-1) / (predict_flag[:, 1:].sum(-1)+1)
         return loss.mean()
 
-    def huber_loss(self, predict_flag, pred, gt, expected_traj_index, gt_mask,track='motion'):
+    def huber_loss(self, predict_flag, pred, gt, expected_traj_index, gt_mask,track,obj_type):
         '''
             params:
                 score: the predicted traj
@@ -118,9 +129,20 @@ class Loss(torch.nn.Module):
             loss_sum = ((reg_loss * gt_mask).sum(dim=-1)) * predict_flag
             gt_sum = gt_mask.sum(dim=-1)
             gt_sum[gt_sum == 0] = 1
-            mean_agent_loss = loss_sum / gt_sum
-            agent_sum = max(predict_flag.sum(), 1)
-            reg_loss = mean_agent_loss.sum() / agent_sum
+            loss_sum = loss_sum / gt_sum
+            obj_type = obj_type * predict_flag.squeeze(-1)
+            veh = obj_type==1
+            ped = obj_type==2
+            cyc = obj_type==3
+            veh_loss = (loss_sum * veh).sum() / max(veh.sum(),1)
+            ped_loss = (loss_sum * ped).sum() / max(ped.sum(), 1)
+            cyc_loss = (loss_sum * cyc).sum() / max(cyc.sum(), 1)
+            reg_loss = (veh_loss+ped_loss+cyc_loss)/3
+            # gt_sum = gt_mask.sum(dim=-1)
+            # gt_sum[gt_sum == 0] = 1
+            # mean_agent_loss = loss_sum / gt_sum
+            # agent_sum = max(predict_flag.sum(), 1)
+            # reg_loss = mean_agent_loss.sum() / agent_sum
         else:
             expected_traj_index = expected_traj_index.view(*expected_traj_index.shape,1,1,1,1).repeat(1,2,1,80,2)
 

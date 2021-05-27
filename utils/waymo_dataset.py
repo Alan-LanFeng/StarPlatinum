@@ -279,19 +279,23 @@ if __name__ == '__main__':
             except:
                 pass
 
-            cache_root = 's3://prediction/data/wod'
+            #cache_root = 's3://prediction/data/wod'
+            cache_root = '/home/SENSETIME/fenglan/waymo-challenge'
             path_name = os.path.join(cache_root, dataset_cfg['cache_name'], period)
             # if not os.path.exists(path_name):
             #     os.makedirs(path_name)
-            for i in range(batch_size):
+            for i in range(data['hist'].shape[0]):
                 cache_file = os.path.join(path_name, f'{cnt}.pkl')
                 # if not os.path.exists(cache_file):
                 #     os.mknod(cache_file)
-                data = {k: v[i] for k, v in data.items()}
-
-                from petrel_client.client import Client
-                ceph = Client('~/petreloss.conf')
-                ceph.put(cache_file, pickle.dumps(data))
+                try:
+                    with open(cache_file, 'wb') as f:
+                        pickle.dump({k: v[i] for k, v in data.items()}, f)
+                except:
+                    pass
+                # from petrel_client.client import Client
+                # ceph = Client('~/petreloss.conf')
+                # ceph.put(cache_file, pickle.dumps(data))
                 # try:
                 #     with open(cache_file, 'wb') as f:
                 #         pickle.dump({k: v[i] for k, v in data.items()}, f)
