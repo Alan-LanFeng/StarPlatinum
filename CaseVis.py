@@ -93,9 +93,6 @@ def draw(data, new_data, pred, score, prefix):
         lane = data['lane_vector']
         l = lane[i]
         n_line, n_point, n_channel = l.shape
-        theta = data['theta'][i]
-        bgc = np.fromfunction(lambda i, j: (np.sin(theta) * i + np.cos(theta) * j) / 600, (800, 800),
-                              dtype=float).numpy()
 
         for j in range(n_line):
             for k in range(n_point):
