@@ -117,8 +117,8 @@ class WODEvaluator(object):
                         data[key] = data[key].to(self.device)
                     except:
                         pass
-                coord, score, new_data = model(data)
-
+                out = model(data)
+                coord, score, new_data=out[0],out[1],out[2]
                 coord = coord.detach()
                 score = score.detach()
 

@@ -142,6 +142,9 @@ if __name__ == "__main__":
             for k,v in input.items():
                 input[k] = v.detach()
             input['pred_mask'] = input['gt_mask']
+
+            index = index.unsqueeze(-1).repeat(1,2)
+
             gather_traj = index.view(*index.shape,1,1,1).repeat(1,1,1,*input['traj'].shape[-2:])
             input['traj'] = torch.gather(input['traj'],2,gather_traj)
             fake_loss = adversarial_loss(disc(input,loss_mask), fake).squeeze(-1).squeeze(-1)
