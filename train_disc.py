@@ -11,8 +11,8 @@ from utils.evaluator import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
-import pickle
-
+from torch.autograd import Variable
+from models.killer_queen import killer_queen
 
 # ==============================Main=======================================
 if __name__ == "__main__":
@@ -45,11 +45,12 @@ if __name__ == "__main__":
     train_dataset = WaymoDataset(dataset_cfg, 'training')
     print('len:', len(train_dataset))
 
+
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
     if cfg['track'] == 'interaction':
-        val_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
+        val_dataset = WaymoDataset(dataset_cfg, 'validation')
     else:
         val_dataset = WaymoDataset(dataset_cfg, 'validation')
     val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
@@ -61,9 +62,18 @@ if __name__ == "__main__":
     model_cfg = cfg['model_cfg']
     model = model(model_cfg)
 
+
     train_cfg = cfg['train_cfg']
     optimizer = optim.AdamW(model.parameters(), lr=train_cfg['lr'], betas=(0.9, 0.999), eps=1e-09,
                             weight_decay=train_cfg['weight_decay'], amsgrad=True)
+
+
+
+    disc = killer_queen(model_cfg)
+    optimizer_D = optim.AdamW(disc.parameters(), lr=train_cfg['lr'],
+                              betas=(0.9, 0.999), eps=1e-09,
+                              weight_decay=train_cfg['weight_decay'],
+                              amsgrad=True)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=train_cfg['lr_decay_per_epoch'],
                                           gamma=train_cfg['decay_rate'])
@@ -104,20 +114,55 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
             output = model(data)
+            #L2 loss
             loss, losses, miss_rate,index = criterion(output,cfg['track'])
+
+            Tensor = torch.cuda.FloatTensor if not args.local else torch.FloatTensor
+            valid = Variable(Tensor(*output[0].shape[:3], 1).fill_(1.0), requires_grad=False)
+            adversarial_loss = torch.nn.BCELoss(reduction='none')
+            loss_mask = output[2]['tracks_to_predict']
+
+            conf = disc(output[3],loss_mask)
+            loss_g = torch.mean(adversarial_loss(conf, valid).squeeze(-1),-1)
+            loss_g = loss_g*loss_mask
+            loss_g = loss_g.sum()/max(loss_mask.sum(),1)
+            loss = loss_g + loss
             loss.backward()
             nn.utils.clip_grad_norm_(
                 model.parameters(), max_norm=train_cfg['max_norm_gradient'])
             optimizer.step()
-            # * Display the results.
 
+            #==============train disc====================
+            optimizer_D.zero_grad()
+            valid = Variable(Tensor(*output[0].shape[:2], 1, 1).fill_(1.0), requires_grad=False)
+            fake = Variable(Tensor(*output[0].shape[:2], 1, 1).fill_(0.0), requires_grad=False)
+            input = output[3]
+            for k,v in input.items():
+                input[k] = v.detach()
+            input['pred_mask'] = input['gt_mask']
+            gather_traj = index.view(*index.shape,1,1,1).repeat(1,1,1,*input['traj'].shape[-2:])
+            input['traj'] = torch.gather(input['traj'],2,gather_traj)
+            fake_loss = adversarial_loss(disc(input,loss_mask), fake).squeeze(-1).squeeze(-1)
+
+            input['traj'] = input['gt_traj']
+            real_loss = adversarial_loss(disc(input,loss_mask), valid).squeeze(-1).squeeze(-1)
+
+            real_loss = (real_loss*loss_mask).sum()/loss_mask.sum()
+            fake_loss = (fake_loss*loss_mask).sum()/loss_mask.sum()
+            loss_d = (real_loss + fake_loss) / 2
+
+            loss_d.backward()
+            optimizer_D.step()
 
             losses_text = ''
             for loss_name in losses:
                 losses_text += loss_name + ':{:.3f} '.format(losses[loss_name])
-            progress_bar.set_description(desc='{} total-MR:{:.1f}% '.format(losses_text, miss_rate * 100))
+            progress_bar.set_description(desc='{} total-MR:{:.1f}% loss_g:{:.3f} loss_d:{:.3f}'.format(losses_text, miss_rate * 100,loss_g,loss_d))
 
-            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'], "loss/crash": losses['crash_loss'], 
+            log_dict = {"loss/totalloss": loss.detach(), "loss/reg": losses['reg_loss'], "loss/cls": losses['cls_loss'],
+                        "loss/loss_g": loss_g.detach(),
+                        "loss/loss_d": loss_d.detach(),
+                        "loss/crash": losses['crash_loss'],
                         'MR': miss_rate}
 
             for k, v in log_dict.items():
