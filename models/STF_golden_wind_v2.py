@@ -21,9 +21,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_golden_wind(STF):
+class STF_golden_wind_v2(STF):
     def __init__(self, cfg):
-        super(STF_golden_wind, self).__init__(cfg)
+        super(STF_golden_wind_v2, self).__init__(cfg)
 
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -68,7 +68,7 @@ class STF_golden_wind(STF):
             nn.Linear(d_model, d_model, bias=True))
 
         self.social_emb = nn.Sequential(
-            nn.Linear(prop_num * d_model, d_model, bias=True),
+            nn.Linear(d_model, d_model, bias=True),
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
@@ -154,18 +154,23 @@ class STF_golden_wind(STF):
 
         # ===================high-order interaction module=============================================
         # social_valid_len = data['valid_len'][:, 1] + 1
-        social_mask = torch.ones((lane_out.shape[0], 1, max_agent)).to(lane_out.device)
+
         # for i in range(lane_out.shape[0]):
         #     social_mask[i, 0, :social_valid_len[i]] = 1
-        social_emb = self.social_emb(lane_out.view(*lane_out.shape[:2], -1))
-
+        social_emb = self.social_emb(lane_out)
+        center_emb = center_emb.unsqueeze(-2).repeat(1,1,social_emb.shape[-2],1)
+        yaw_emb = yaw_emb.unsqueeze(-2).repeat(1,1,social_emb.shape[-2],1)
         social_emb = torch.cat([center_emb, social_emb], dim=-1)
         social_emb = self.fusion1cent(social_emb)
         social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
         social_emb = self.fusion1yaw(social_emb)
 
+        social_emb = social_emb.transpose(1,2).reshape(-1,2,128)
+
+        social_mask = torch.ones((social_emb.shape[0], 1, max_agent)).to(lane_out.device)
         social_mem = self.social_enc(social_emb, social_mask)
-        social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
+        social_mem = social_mem.reshape(lane.shape[0],-1,*social_mem.shape[-2:])
+        social_out = social_mem.transpose(1,2)
         out = torch.cat([social_out, lane_out], -1)
         outputs_coord, outputs_class = self.prediction_head(out, new_data['obj_type'])
 

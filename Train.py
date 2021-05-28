@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
             output = model(data)
-            loss, losses, miss_rate,index = criterion(output,cfg['track'])
+            loss, losses, miss_rate = criterion(output,cfg['track'])
             loss.backward()
             nn.utils.clip_grad_norm_(
                 model.parameters(), max_norm=train_cfg['max_norm_gradient'])

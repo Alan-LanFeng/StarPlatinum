@@ -42,7 +42,7 @@ class Loss(torch.nn.Module):
 
             loss = self.K * reg_loss + cls_loss
         else:
-            dis_mat = torch.max(torch.transpose(dis_mat,1,2),-1).values
+            dis_mat = torch.mean(torch.transpose(dis_mat,1,2),-1)
             index = torch.argmin(dis_mat, dim=-1)
             tracks_to_predict = data['tracks_to_predict']
             tracks_to_predict = (tracks_to_predict[:,0]*tracks_to_predict[:,1]).unsqueeze(-1)

@@ -457,9 +457,9 @@ class GeneratorWithInteraction(nn.Module):
         self.cls_opt = nn.LogSoftmax(dim=-1)
 
     def forward(self, x):
-        pred1 = self.reg_mlp1(x[:,0,:,:]).unsqueeze(1)
-        pred2 = self.reg_mlp2(x[:,1,:,:]).unsqueeze(1)
-        pred = torch.cat([pred1,pred2],1)
+        pred1 = self.reg_mlp1(x[:, 0, :, :]).unsqueeze(1)
+        pred2 = self.reg_mlp2(x[:, 1, :, :]).unsqueeze(1)
+        pred = torch.cat([pred1, pred2], 1)
         pred = pred.view(*pred.shape[0:3], -1, 2)  # .cumsum(dim=-2)
         # return pred
         x = torch.transpose(x, 1, 2)
@@ -469,6 +469,48 @@ class GeneratorWithInteraction(nn.Module):
         cls_h = self.classification_layer(cls_h).squeeze(dim=-1)
         conf = self.cls_opt(cls_h)
         # conf = cls_h
+        return pred, conf
+
+class GeneratorWithInteraction1(nn.Module):
+    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, dis_h_dim=128, cls_h_dim=128):
+        super(GeneratorWithInteraction1, self).__init__()
+        self.reg_cls = nn.Sequential(
+            nn.Linear(d_model * 2, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+        )
+        self.reg_mlp1 = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.Linear(reg_h_dim, out_size, bias=True))
+        self.reg_mlp2 = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.Linear(reg_h_dim, out_size, bias=True))
+
+        self.cls1 = nn.Sequential(
+            PointerwiseFeedforward(d_model, 2 * d_model, dropout=dropout),
+            nn.Linear(d_model, cls_h_dim),
+            nn.Linear(cls_h_dim, 1, bias=True),
+            nn.LogSoftmax(dim=-1))
+
+        self.cls2 = nn.Sequential(
+            PointerwiseFeedforward(d_model, 2 * d_model, dropout=dropout),
+            nn.Linear(d_model, cls_h_dim),
+            nn.Linear(cls_h_dim, 1, bias=True),
+            nn.LogSoftmax(dim=-1))
+
+    def forward(self, x):
+        pred1 = self.reg_mlp1(x[:,0,:,:]).unsqueeze(1)
+        pred2 = self.reg_mlp2(x[:,1,:,:]).unsqueeze(1)
+        conf1 = self.cls1(x[:, 0, :, :]).unsqueeze(1)
+        conf2 = self.cls2(x[:, 1, :, :]).unsqueeze(1)
+        pred = torch.cat([pred1,pred2],1)
+        conf = torch.cat([conf1, conf2], 1)
         return pred, conf
 
 
@@ -499,155 +541,6 @@ class GeneratorWithParallelHeads(nn.Module):
         return pred, conf
 
 
-class CascadeOffSetGenerator(nn.Module):
-    def __init__(self, d_model, out_size, dropout):
-        super(CascadeOffSetGenerator, self).__init__()
-        self.reg_offset_mlp = nn.Sequential(
-            nn.Linear(d_model, d_model * 2, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model * 2, d_model, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model, out_size, bias=True))
-
-    def forward(self, x, last_coords):
-        pred = self.reg_mlp(x)
-        pred_offset = pred.view(*pred.shape[:-1], -1, 2)
-        coords = pred_offset + last_coords
-        return coords
-
-
-class CascadeClsGenerator(nn.Module):
-    def __init__(self, d_model, out_size, dropout, region_proposal_num=6):
-        super(CascadeClsGenerator, self).__init__()
-        self.cls_mlp = nn.Sequential(
-            nn.Linear(d_model * region_proposal_num, d_model, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model // 2, bias=True),
-            nn.Linear(d_model // 2, 1, bias=True)
-        )
-
-    def forward(self, x, last_coords):
-        conf = self.cls_mlp(x)
-        return conf
-
-
-class GeneratorWithParallelHeadsV2(nn.Module):
-    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, region_proposal_num=6):
-        super(GeneratorWithParallelHeadsV2, self).__init__()
-        self.region_proposal_num = region_proposal_num
-        self.reg_mlp = nn.Sequential(
-            nn.Linear(d_model, reg_h_dim * 2, bias=True),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim, reg_h_dim, bias=True),
-            nn.Linear(reg_h_dim, out_size, bias=True))
-
-        self.cls_partition_mlp = nn.Sequential(
-            nn.Linear(d_model, d_model, bias=True),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, d_model, bias=True),
-            nn.Linear(d_model, 6, bias=True)
-        )
-
-        self.cls_mlp = nn.Sequential(
-            nn.Linear(d_model, d_model * 2, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model * 2, d_model, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model // 2, bias=True),
-            nn.Linear(d_model // 2, 1, bias=True)
-        )
-
-        self.cls_opt = nn.Softmax(dim=-1)
-
-    def forward(self, x, cls_query):
-        pred = self.reg_mlp(x)
-        pred = pred.view(*pred.shape[:-1], -1, 2).cumsum(dim=-2)
-        conf = self.cls_mlp(x).squeeze(dim=-1)
-        normalized_conf = self.cls_opt(conf)
-        conf_par = self.cls_partition_mlp(cls_query)
-        return pred, normalized_conf, conf_par
-
-
-class GeneratorWithParallelHeadsV3(nn.Module):
-    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, region_proposal_num=6):
-        super(GeneratorWithParallelHeadsV3, self).__init__()
-        self.region_proposal_num = region_proposal_num
-        self.reg_mlp = nn.Sequential(
-            nn.Linear(d_model, reg_h_dim * 2, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim, out_size, bias=True))
-
-        # self.cls_partition_mlp= nn.Sequential(
-        #     nn.Linear(d_model*region_proposal_num, d_model*region_proposal_num//2, bias=True),
-        #     nn.ReLU(),
-        #     nn.Linear(d_model*region_proposal_num//2, d_model, bias=True),
-        #     nn.ReLU(),
-        #     nn.Linear(d_model, d_model//2, bias=True),
-        #     nn.Linear(d_model//2, 1, bias=True)
-        #     )
-
-        self.cls_mlp = nn.Sequential(
-            nn.Linear(d_model, d_model * 2, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model * 2, d_model, bias=True),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model // 2, bias=True),
-            nn.Linear(d_model // 2, 1, bias=True)
-        )
-
-        self.cls_opt = nn.Softmax(dim=-1)
-
-    def forward(self, x):
-        pred = self.reg_mlp(x)
-        pred = pred.view(*pred.shape[:-1], -1, 2).cumsum(dim=-2)
-
-        conf = self.cls_mlp(x).squeeze(dim=-1)
-        normalized_conf = self.cls_opt(conf)
-
-        # cls_in = x.reshape(*x.shape[:-2], -1, self.region_proposal_num*x.shape[-1])
-        # conf_par = self.cls_partition_mlp(cls_in).squeeze(dim=-1)
-        # * only add up all corresponding region proposal to construct the region confidence score
-        conf_par = conf.reshape(*conf.shape[:-1], -1, self.region_proposal_num).sum(-1)
-        return pred, normalized_conf, conf_par
-
-
-class GeneratorWithGaussianDistance(nn.Module):
-    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, region_proposal_num=6):
-        super(GeneratorWithGaussianDistance, self).__init__()
-        self.reg_mlp = nn.Sequential(
-            nn.Linear(d_model, reg_h_dim * 2, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim, out_size, bias=True))
-        self.cls_FFN = PointerwiseFeedforward(d_model, 2 * d_model, dropout=dropout)
-        self.confidence = nn.Sequential(nn.Linear(d_model, 1, bias=True))
-        self.classification_layer = nn.Sequential(nn.Linear(d_model, d_model // 2, bias=True),
-                                                  nn.ReLU(),
-                                                  nn.Linear(d_model // 2, 1, bias=True))
-        self.cls_opt = nn.Softmax(dim=-1)
-        self.region_proposal_num = region_proposal_num
-
-    def forward(self, x):
-        pred = self.reg_mlp(x)
-        pred = pred.view(*pred.shape[:-1], -1, 2).cumsum(dim=-2)
-        cls_h = self.cls_FFN(x)  # [..., K, h]
-        cls_dist = self.classification_layer(cls_h).squeeze(dim=-1)  # [..., K]
-        cls_dist = split_dim(cls_dist, (-1, self.region_proposal_num), dim=-1)  # [..., numregion, region_proposal_num]
-        # cls_h_region = split_dim( cls_h, (-1, self.region_proposal_num),dim=-2) # [..., numregion, region_proposal_num, h]
-        # cls_h_region, _ = cls_h_region.max(dim=-3) # [..., region_proposal_num, h]
-        # log_sigma = self.confidence(cls_h_region) # [..., region_proposal_num, 1]
-        # conf = self.cls_opt(-cls_dist**2).reshape(*cls_dist.shape[:-2], -1)
-        conf = self.cls_opt(cls_dist).reshape(*cls_dist.shape[:-2], -1)
-        return pred, conf
-
-
 class ClassificationHead(nn.Module):
     def __init__(self, d_model):
         super(ClassificationHead, self).__init__()
@@ -662,125 +555,6 @@ class ClassificationHead(nn.Module):
         cls_out = self.cls_mlp(x).squeeze(dim=-1)
         return cls_out
 
-
-class ModalityGeneratorVer2(nn.Module):
-    def __init__(self, input_size, modality_num=6):
-        super(ModalityGeneratorVer2, self).__init__()
-        self.modality_num = modality_num
-        self.input_size = input_size
-        self.expand_proj = nn.Sequential(nn.Linear(input_size, modality_num * input_size),
-                                         nn.LayerNorm(modality_num * input_size),
-                                         )
-        self.linears = clones(nn.Linear(input_size, input_size, bias=True), modality_num)
-
-    def forward(self, x):
-        '''
-            x:[batchsize, number agents, num_query, dim]
-            out:[batchsize, number agents, modality_num, num_query, dim]
-        '''
-        single_modality_shape = x.shape
-        multi_modality = self.expand_proj(x)
-        multi_modality = multi_modality.view(*single_modality_shape, self.modality_num)
-        multi_modality = multi_modality.permute(4, 0, 1, 2,
-                                                3)  # [modality_num, batchsize, number agents, num_query, dim]
-        multi_modality = [self.linears[i](multi_modality[i]) for i in range(self.modality_num)]
-        multi_modality = torch.cat(multi_modality, dim=-2)  # [batchsize, number agents, modality_num, num_query, dim]
-        return multi_modality
-
-
-class MultiScaleEncoder(nn.Module):
-
-    def __init__(self, layer, n, scaled_list=None):
-        super(MultiScaleEncoder, self).__init__()
-        self.layers = clones(layer, n)
-        self.norm = nn.LayerNorm(layer.size)
-        assert n >= 3, 'multiscale usd the last 3 layer as the output'
-        self.n = n
-        self.scaled_list = [1.0, 0.7, 0.4] if scaled_list is None else scaled_list
-
-    def forward(self, x, x_mask):
-        """
-        Pass the input (and mask) through each layer in turn.
-        """
-        self.max_lane = x.shape[1]
-        x_mask = x_mask.clone()
-        self.lane_num = (x_mask == 1).sum(-1).squeeze(-1)
-        out_x = []
-        for idex, layer in enumerate(self.layers):
-            if idex >= self.n - 3:
-                x_mask = self.get_max_lane(idex - (self.n - 3), x_mask)
-            x = layer(x, x_mask)
-
-            if idex >= self.n - 3:
-                out_x.append([self.norm(x), x_mask.clone()])
-        return out_x
-
-    def get_max_lane(self, idx, mask):
-        index = (self.lane_num * self.scaled_list[idx]).int()
-        for i in range(mask.shape[0]):
-            ture_index = index[i]
-            mask[i, 0, :ture_index] = 1
-
-        return mask
-
-
-class IterativeBoundingBoxRefinement(nn.Module):
-    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, region_proposal_num=6, layer_num=4):
-        super(IterativeBoundingBoxRefinement, self).__init__()
-        self.multi_heads = nn.ModuleList(
-            [GeneratorWithParallelHeads(d_model, out_size, dropout, reg_h_dim, region_proposal_num), ])
-        heads = GeneratorWithParallelHeadsRefine(d_model, out_size, dropout, reg_h_dim, region_proposal_num)
-        self.multi_heads.extend(nn.ModuleList([deepcopy(heads) for _ in range(layer_num - 1)]))
-        self.layer_num = layer_num
-
-    def forward(self, x):
-        """
-            params:
-                x = [layer_num, ....]
-
-        """
-        conf, pred = [], []
-        _pred, _conf = self.multi_heads[0](x[0])
-        conf.append(_conf)
-        pred.append(_pred)
-        for i in range(1, self.layer_num):
-            _pred, _conf = self.multi_heads[i](x[i] + x[i - 1].detach(), _pred.detach())
-            conf.append(_conf)
-            pred.append(_pred)
-
-        pred = torch.stack(pred, dim=0)
-        conf = torch.stack(conf, dim=0)
-        return pred, conf
-
-
-class GeneratorWithParallelHeadsRefine(nn.Module):
-
-    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, region_proposal_num=6):
-        super(GeneratorWithParallelHeadsRefine, self).__init__()
-        self.reg_mlp = nn.Sequential(
-            nn.Linear(d_model, reg_h_dim * 2, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim, out_size, bias=True))
-        self.cls_FFN = PointerwiseFeedforward(d_model, 2 * d_model, dropout=dropout)
-        self.classification_layer = nn.Sequential(
-            nn.Linear(d_model, d_model // 2, bias=True),
-            nn.Linear(d_model // 2, 1, bias=True))
-        self.cls_opt = nn.Softmax(dim=-1)
-        self.region_proposal_num = region_proposal_num
-
-    def forward(self, x, pre_pred):
-        pred = self.reg_mlp(x)
-        pred = pred.view(*pred.shape[:-1], -1, 2) + pre_pred
-        # endpoint = pred[...,-1,:].squeeze(dim=-2).detach()
-        # x = torch.cat((x, endpoint), dim=-1)
-        cls_h = self.cls_FFN(x)
-        cls_dist = self.classification_layer(cls_h).squeeze(dim=-1)
-        # cls_dist = split_dim(cls_dist,(-1, self.region_proposal_num),dim=-1) # [..., numregion, region_proposal_num]
-        # conf = self.cls_opt(-cls_dist**2).reshape(*cls_dist.shape[:-2], -1)
-        conf = self.cls_opt(cls_dist)
-        return pred, conf
 
 
 class MLP(nn.Module):
@@ -847,6 +621,30 @@ class intChoiceHead(nn.Module):
         super(intChoiceHead, self).__init__()
         self.model_list = nn.ModuleList(
             [GeneratorWithInteraction(d_model, out_size, dropout) for i in range(choices)])
+
+    def forward(self, x, idx):
+        pred_coord, pred_class = [], []
+        for m in self.model_list:
+            res1, res2 = m(x)
+            pred_coord.append(res1.unsqueeze(-1))
+            pred_class.append(res2.unsqueeze(-1))
+        pred_coord = torch.cat(pred_coord, dim=-1)
+        pred_class = torch.cat(pred_class, dim=-1)
+        #idx = idx - (idx > 0).int()
+        idx = idx[...,1]
+        idx = idx - (idx > 0).int()
+        k = pred_coord.shape[2]
+        pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape,1, 1, 1, 1, 1).repeat(1,2,  k, 80, 2, 1))
+        pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1,1).repeat(1, k, 1))
+        pred_coord = pred_coord.squeeze(-1)
+        pred_class = pred_class.squeeze(-1)
+        return pred_coord, pred_class
+
+class intChoiceHead1(nn.Module):
+    def __init__(self, d_model, out_size, dropout, choices=3):
+        super(intChoiceHead1, self).__init__()
+        self.model_list = nn.ModuleList(
+            [GeneratorWithInteraction1(d_model, out_size, dropout) for i in range(choices)])
 
     def forward(self, x, idx):
         pred_coord, pred_class = [], []
