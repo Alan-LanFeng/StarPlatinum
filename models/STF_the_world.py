@@ -217,4 +217,4 @@ class STF_the_world(STF):
         disc['gt_mask'] = gt_mask.unsqueeze(2)
         disc['pred_mask'] = torch.ones([*hist_mask.shape[:3], 80]).to(hist_mask.device).to(torch.bool)
 
-        return outputs_coord, outputs_class, new_data,disc
+        return outputs_coord, outputs_class, new_data

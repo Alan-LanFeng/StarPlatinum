@@ -57,7 +57,7 @@ class Loss(torch.nn.Module):
 
             loss = self.K * reg_loss + cls_loss
 
-        return loss, losses, miss_rate,index
+        return loss, losses, miss_rate
 
     def maxEntropyLoss(self, predict_flag, score, dis_mat,track):
         '''
