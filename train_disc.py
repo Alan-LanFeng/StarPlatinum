@@ -81,6 +81,8 @@ if __name__ == "__main__":
     if not args.local:
         model = torch.nn.DataParallel(model, list(range(gpu_num)))
         model = model.to(device)
+        disc = torch.nn.DataParallel(disc, list(range(gpu_num)))
+        disc = disc.to(device)
 
     if args.resume:
         resume_model_name = os.path.join(
@@ -180,8 +182,11 @@ if __name__ == "__main__":
             os.mkdir('./saved_models/')
         model_save_name = os.path.join(
             'saved_models', '{}_{}.pt'.format(args.model_name, epoch + 1))
-
         save_checkpoint(model_save_name, model, optimizer)
+        disc_save_name = os.path.join(
+            'saved_models', 'd_{}_{}.pt'.format(args.model_name, epoch + 1))
+        save_checkpoint(disc_save_name, disc, optimizer_D)
+
 
         print('Epoch{} finished!!!!'.format(epoch + 1))
 

@@ -63,7 +63,12 @@ class WaymoDataset(Dataset):
             #     pickle.dump(data, f)
             # return data
 
-
+        # cache_root = 's3://prediction/data/wod'
+        # cache_file = os.path.join(cache_root, self.cache_name, self.period, f'{index}.pkl')
+        # from petrel_client.client import Client
+        # ceph = Client('~/petreloss.conf')
+        # sample_bytes = ceph.get(cache_file)
+        # return pickle.loads(sample_bytes)
 
     def hist_process(self, traj):
         vector = np.concatenate([traj[..., :CURRENT, :2], traj[..., 1:CURRENT + 1, :2]], -1)
