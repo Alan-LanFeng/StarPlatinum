@@ -5,6 +5,7 @@ from models.utils import (
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
     LinearEmbedding, LaneNet,PositionalEncoding,
+    rr_prediction_head
 )
 
 import copy
@@ -81,17 +82,10 @@ class road_roller(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
+        self.prediction_head = rr_prediction_head(dropout)
 
-        self.prediction_head = nn.Sequential(
-                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
-                        nn.Linear(128, 64, bias=True),
-                        nn.LayerNorm(64),
-                        nn.ReLU(),
-                        nn.Linear(64, 32, bias=True),
-                        nn.Linear(32, 1, bias=True),
-                        nn.Sigmoid())
 
-    def forward(self, disc,tracks_to_predict):
+    def forward(self, disc):
         lane_mask = disc['output_lane_mask']
         lane = disc['output_lane']
         # reconstruct each trajectory
@@ -125,7 +119,7 @@ class road_roller(nn.Module):
 
         # =============social model
         # road roller da
-        out = self.prediction_head(lane_out)
+        out = self.prediction_head(lane_out,disc['obj_type'])
         return out
 
 

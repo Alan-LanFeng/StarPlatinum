@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from utils.waymo_dataset import WaymoDataset
-from utils.evaluator import WODEvaluator
+from utils.evaluator_disc import WODEvaluator
 from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
@@ -127,7 +127,7 @@ if __name__ == "__main__":
             if cfg['track']=='interaction':
                 loss_mask = (loss_mask[:,0]*loss_mask[:,1])
                 valid = Variable(Tensor(*output[1].shape[:2], 1).fill_(1.0), requires_grad=False)
-            conf = disc(output[3],loss_mask)
+            conf = disc(output[3])
             loss_g = torch.mean(adversarial_loss(conf, valid).squeeze(-1),-1)
             loss_g = loss_g*loss_mask
             loss_g = loss_g.sum()/max(loss_mask.sum(),1)
@@ -153,10 +153,10 @@ if __name__ == "__main__":
 
             gather_traj = index.view(*index.shape,1,1,1).repeat(1,1,1,*input['traj'].shape[-2:])
             input['traj'] = torch.gather(input['traj'],2,gather_traj)
-            fake_loss = adversarial_loss(disc(input,loss_mask), fake).squeeze(-1).squeeze(-1)
+            fake_loss = adversarial_loss(disc(input), fake).squeeze(-1).squeeze(-1)
 
             input['traj'] = input['gt_traj']
-            real_loss = adversarial_loss(disc(input,loss_mask), valid).squeeze(-1).squeeze(-1)
+            real_loss = adversarial_loss(disc(input), valid).squeeze(-1).squeeze(-1)
 
             real_loss = (real_loss*loss_mask).sum()/loss_mask.sum()
             fake_loss = (fake_loss*loss_mask).sum()/loss_mask.sum()
@@ -182,7 +182,8 @@ if __name__ == "__main__":
 
         scheduler.step()
 
-        eval_dict = evaluator.evaluate(model)
+        eval_dict = evaluator.evaluate(model,disc)
+
         for k, v in eval_dict.items():
             writer.add_scalar(k, v, cnt)
 

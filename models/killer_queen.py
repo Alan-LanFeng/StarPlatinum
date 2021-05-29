@@ -5,6 +5,7 @@ from models.utils import (
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
     LinearEmbedding, LaneNet,PositionalEncoding,
+    kq_prediction_head
 )
 
 import copy
@@ -81,17 +82,9 @@ class killer_queen(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
+        self.prediction_head = kq_prediction_head(dropout)
 
-        self.prediction_head = nn.Sequential(
-                        nn.Linear(512, 256, bias=True),
-                        nn.LayerNorm(256),
-                        nn.ReLU(),
-                        PointerwiseFeedforward(256, 512, dropout=dropout),
-                        nn.Linear(256, 128, bias=True),
-                        nn.Linear(128, 1, bias=True),
-                        nn.Sigmoid())
-
-    def forward(self, disc,tracks_to_predict):
+    def forward(self, disc):
         lane_mask = disc['output_lane_mask']
         lane = disc['output_lane']
         # reconstruct each trajectory
@@ -144,7 +137,7 @@ class killer_queen(nn.Module):
         out = torch.cat([social_mem, lane_out], -1)
         out = out.reshape(*out.shape[:2],-1)
         # The third bomb, Bite the Dust===========================
-        out = self.prediction_head(out)
+        out = self.prediction_head(out,disc['obj_type'])
 
         return out
 

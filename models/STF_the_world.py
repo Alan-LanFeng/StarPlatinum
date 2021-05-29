@@ -210,7 +210,7 @@ class STF_the_world(STF):
         gt_mask = data['gt_mask'][:,:max_agent]
         gather_gt_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 80)
         gt_mask = torch.gather(gt_mask,1,gather_gt_mask)
-
+        disc['obj_type'] = new_data['obj_type']-1
         disc['traj'] = whole_traj
         disc['hist_mask'] = hist_mask
         disc['gt_traj'] = gt_traj.unsqueeze(2)

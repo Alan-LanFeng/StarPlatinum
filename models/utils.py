@@ -640,6 +640,85 @@ class intChoiceHead(nn.Module):
         pred_class = pred_class.squeeze(-1)
         return pred_coord, pred_class
 
+
+
+class rr_prediction_head(nn.Module):
+    def __init__(self,dropout):
+        super(rr_prediction_head, self).__init__()
+        self.head_veh = nn.Sequential(
+                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
+                        nn.Linear(128, 64, bias=True),
+                        nn.LayerNorm(64),
+                        nn.ReLU(),
+                        nn.Linear(64, 32, bias=True),
+                        nn.Linear(32, 1, bias=True),
+                        nn.Sigmoid())
+        self.head_ped = nn.Sequential(
+                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
+                        nn.Linear(128, 64, bias=True),
+                        nn.LayerNorm(64),
+                        nn.ReLU(),
+                        nn.Linear(64, 32, bias=True),
+                        nn.Linear(32, 1, bias=True),
+                        nn.Sigmoid())
+        self.head_cyc = nn.Sequential(
+                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
+                        nn.Linear(128, 64, bias=True),
+                        nn.LayerNorm(64),
+                        nn.ReLU(),
+                        nn.Linear(64, 32, bias=True),
+                        nn.Linear(32, 1, bias=True),
+                        nn.Sigmoid())
+
+    def forward(self, x, idx):
+        veh_out = self.head_veh(x).unsqueeze(-1)
+        ped_out = self.head_ped(x).unsqueeze(-1)
+        cyc_out = self.head_cyc(x).unsqueeze(-1)
+        out = torch.cat([veh_out,ped_out,cyc_out],-1)
+        idx = idx.view(*idx.shape,1,1,1).repeat(1,1,*out.shape[-3:-1],1)
+        prob = torch.gather(out,-1,idx).squeeze(-1)
+        return prob
+
+class kq_prediction_head(nn.Module):
+    def __init__(self,dropout):
+        super( kq_prediction_head, self).__init__()
+        self.head_veh = nn.Sequential(
+                        nn.Linear(512, 256, bias=True),
+                        nn.LayerNorm(256),
+                        nn.ReLU(),
+                        PointerwiseFeedforward(256, 512, dropout=dropout),
+                        nn.Linear(256, 128, bias=True),
+                        nn.Linear(128, 1, bias=True),
+                        nn.Sigmoid())
+
+        self.head_ped = nn.Sequential(
+                        nn.Linear(512, 256, bias=True),
+                        nn.LayerNorm(256),
+                        nn.ReLU(),
+                        PointerwiseFeedforward(256, 512, dropout=dropout),
+                        nn.Linear(256, 128, bias=True),
+                        nn.Linear(128, 1, bias=True),
+                        nn.Sigmoid())
+        self.head_cyc = nn.Sequential(
+                        nn.Linear(512, 256, bias=True),
+                        nn.LayerNorm(256),
+                        nn.ReLU(),
+                        PointerwiseFeedforward(256, 512, dropout=dropout),
+                        nn.Linear(256, 128, bias=True),
+                        nn.Linear(128, 1, bias=True),
+                        nn.Sigmoid())
+
+    def forward(self, x, idx):
+        veh_out = self.head_veh(x).unsqueeze(-1)
+        ped_out = self.head_ped(x).unsqueeze(-1)
+        cyc_out = self.head_cyc(x).unsqueeze(-1)
+        out = torch.cat([veh_out,ped_out,cyc_out],-1)
+        idx = idx[:,1]
+        idx = idx.view(idx.shape[0],1,1,1).repeat(1,out.shape[1],1,1)
+        prob = torch.gather(out,-1,idx).squeeze(-1)
+        return prob
+
+
 class intChoiceHead1(nn.Module):
     def __init__(self, d_model, out_size, dropout, choices=3):
         super(intChoiceHead1, self).__init__()

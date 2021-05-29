@@ -191,6 +191,7 @@ class STF_crazy_diamond(STF):
         gather_gt_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 80)
         gt_mask = torch.gather(gt_mask, 1, gather_gt_mask)
 
+        disc['obj_type'] = obj_type
         disc['traj'] = whole_traj
         disc['hist_mask'] = hist_mask
         disc['gt_traj'] = gt_traj.unsqueeze(2)

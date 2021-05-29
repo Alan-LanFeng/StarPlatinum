@@ -83,13 +83,11 @@ class STF_the_world_v1(STF):
         disc = {}
 
         # ============================one hot=======================
-        obj_type = data['obj_type'][:,:max_agent]
-        one_hot = torch.zeros([obj_type.shape[0],max_agent,3]).to(obj_type.device)
-        one_hot[obj_type==1] = torch.Tensor([1,0,0]).to(obj_type.device)
-        one_hot[obj_type==2] = torch.Tensor([0,1,0]).to(obj_type.device)
-        one_hot[obj_type==3] = torch.Tensor([0,0,1]).to(obj_type.device)
-        one_hot_hist = one_hot.unsqueeze(-2).repeat(1,1,10,1)
-
+        obj_type = data['obj_type'][:,:max_agent].clone()
+        obj_type-=1
+        obj_type[obj_type<0]=0
+        one = nn.functional.one_hot(obj_type,3).to(torch.float32)
+        one_hot_hist = one.unsqueeze(-2).repeat(1,1,10,1)
         # =======================================trajectory module===================================
         hist = data['hist'][:, :max_agent]
         center = data['hist'][:, :max_agent][...,-1,2:].detach().clone()
@@ -194,8 +192,9 @@ class STF_the_world_v1(STF):
         gt = torch.cat([start,gt],-2)
         vector_gt = torch.cat([gt[:, :, :-1], gt[:, :, 1:]], -1)
 
+
         gather_one_hot = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 3)
-        one_hot = torch.gather(one_hot,1,gather_one_hot)
+        one_hot = torch.gather(one,1,gather_one_hot)
         one_hot_future = one_hot.unsqueeze(-2).unsqueeze(-2).repeat(1, 1,vector.shape[-3], 80, 1)
         one_hot_gt = one_hot.unsqueeze(-2).repeat(1, 1, 80, 1)
         vector = torch.cat([vector,one_hot_future],-1)
@@ -211,7 +210,7 @@ class STF_the_world_v1(STF):
         gt_mask = data['gt_mask'][:,:max_agent]
         gather_gt_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 80)
         gt_mask = torch.gather(gt_mask,1,gather_gt_mask)
-
+        disc['obj_type'] = new_data['obj_type']-1
         disc['traj'] = whole_traj
         disc['hist_mask'] = hist_mask
         disc['gt_traj'] = gt_traj.unsqueeze(2)
