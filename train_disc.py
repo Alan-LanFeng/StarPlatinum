@@ -12,7 +12,7 @@ from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
 from torch.autograd import Variable
-from models.killer_queen import killer_queen
+from models.road_roller import road_roller
 
 # ==============================Main=======================================
 if __name__ == "__main__":
@@ -50,7 +50,7 @@ if __name__ == "__main__":
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
     if cfg['track'] == 'interaction':
-        val_dataset = WaymoDataset(dataset_cfg, 'validation')
+        val_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
     else:
         val_dataset = WaymoDataset(dataset_cfg, 'validation')
     val_loader = DataLoader(val_dataset,shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
 
 
-    disc = killer_queen(model_cfg)
+    disc = road_roller(model_cfg)
     optimizer_D = optim.AdamW(disc.parameters(), lr=train_cfg['lr'],
                               betas=(0.9, 0.999), eps=1e-09,
                               weight_decay=train_cfg['weight_decay'],

@@ -91,7 +91,7 @@ class STF_golden_wind_v2_disc(STF):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
         gather_list, new_data = self._gather_new_data(data, max_agent)
-        obj_type = new_data['obj_type']
+        obj_type = new_data['obj_type'].clone()
         # =============one_hot===============
         obj_type-=1
         obj_type[obj_type<0]=0
