@@ -83,13 +83,12 @@ class killer_queen(nn.Module):
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
 
         self.prediction_head = nn.Sequential(
-                        nn.Linear(256, 64, bias=True),
-                        nn.LayerNorm(64),
+                        nn.Linear(512, 256, bias=True),
+                        nn.LayerNorm(256),
                         nn.ReLU(),
-                        nn.Linear(64, 16, bias=True),
-                        nn.LayerNorm(16),
-                        nn.ReLU(),
-                        nn.Linear(16, 1),
+                        PointerwiseFeedforward(256, 512, dropout=dropout),
+                        nn.Linear(256, 128, bias=True),
+                        nn.Linear(128, 1, bias=True),
                         nn.Sigmoid())
 
     def forward(self, disc,tracks_to_predict):
@@ -125,21 +124,25 @@ class killer_queen(nn.Module):
         lane_out = self.lane_dec(traj_emb, lane_mem, lane_mask, None)
 
         # =============social model
-        social_mask = tracks_to_predict.unsqueeze(-1)
         center = disc['center']
         yaw = disc['yaw']
         center_emb = self.cent_emb(center)
         yaw_emb = self.yaw_emb(yaw)
         social_emb = self.social_emb(lane_out)
-        social_emb = torch.max(social_emb, -2)[0]
+        center_emb = center_emb.unsqueeze(-2).repeat(1,1,social_emb.shape[-2],1)
+        yaw_emb = yaw_emb.unsqueeze(-2).repeat(1,1,social_emb.shape[-2],1)
+
         social_emb = torch.cat([center_emb, social_emb], dim=-1)
         social_emb = self.fusion1cent(social_emb)
         social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
         social_emb = self.fusion1yaw(social_emb)
 
-        social_mem = self.social_enc(social_emb, social_mask)
-        social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, lane_out.shape[-2], 1)
-        out = torch.cat([social_out, lane_out], -1)
+        social_emb = social_emb.transpose(1, 2).reshape(-1, 2, 128)
+        social_mem = self.social_enc(social_emb, None)
+        social_mem = social_mem.reshape(lane.shape[0],-1,*social_mem.shape[-2:])
+        lane_out = lane_out.transpose(1,2)
+        out = torch.cat([social_mem, lane_out], -1)
+        out = out.reshape(*out.shape[:2],-1)
         # The third bomb, Bite the Dust===========================
         out = self.prediction_head(out)
 
