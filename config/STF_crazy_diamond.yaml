@@ -1,9 +1,9 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'STF_the_world_v1'
-track: 'motion'
-disc_name: 'road_roller'
+model_name: 'STF_crazy_diamond'
+track: 'interaction'
+disc_name: 'killer_queen'
 # dataset related
 dataset_cfg:
   cache: True
@@ -30,7 +30,7 @@ model_cfg:
   attention_head: 2
   dropout: 0.0
   model_layers_num: 2
-  max_pred_num: 8
+  max_pred_num: 2
 
 # training related
 train_cfg:

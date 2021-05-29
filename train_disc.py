@@ -12,7 +12,6 @@ from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
 from torch.autograd import Variable
-from models.road_roller import road_roller
 
 # ==============================Main=======================================
 if __name__ == "__main__":
@@ -69,7 +68,8 @@ if __name__ == "__main__":
 
 
 
-    disc = road_roller(model_cfg)
+    disc = load_model_class(cfg['disc_name'])
+    disc = disc(model_cfg)
     optimizer_D = optim.AdamW(disc.parameters(), lr=train_cfg['lr'],
                               betas=(0.9, 0.999), eps=1e-09,
                               weight_decay=train_cfg['weight_decay'],
@@ -124,6 +124,9 @@ if __name__ == "__main__":
             adversarial_loss = torch.nn.BCELoss(reduction='none')
             loss_mask = output[2]['tracks_to_predict']
 
+            if cfg['track']=='interaction':
+                loss_mask = (loss_mask[:,0]*loss_mask[:,1])
+                valid = Variable(Tensor(*output[1].shape[:2], 1).fill_(1.0), requires_grad=False)
             conf = disc(output[3],loss_mask)
             loss_g = torch.mean(adversarial_loss(conf, valid).squeeze(-1),-1)
             loss_g = loss_g*loss_mask
@@ -143,7 +146,10 @@ if __name__ == "__main__":
                 input[k] = v.detach()
             input['pred_mask'] = input['gt_mask']
 
-            index = index.unsqueeze(-1).repeat(1,2)
+            if cfg['track']=='interaction':
+                index = index.unsqueeze(-1).repeat(1,2)
+                valid = Variable(Tensor(output[0].shape[0],1, 1).fill_(1.0), requires_grad=False)
+                fake = Variable(Tensor(output[0].shape[0], 1,1).fill_(0.0), requires_grad=False)
 
             gather_traj = index.view(*index.shape,1,1,1).repeat(1,1,1,*input['traj'].shape[-2:])
             input['traj'] = torch.gather(input['traj'],2,gather_traj)

@@ -3,7 +3,7 @@ format_version: 4
 
 model_name: 'STF_the_world'
 track: 'motion'
-
+disc_name: 'road_roller'
 # dataset related
 dataset_cfg:
   cache: True
