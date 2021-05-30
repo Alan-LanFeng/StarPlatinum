@@ -97,7 +97,8 @@ if __name__ == "__main__":
     # *====================================Training loop=======================================================
     print("Initial at {}:".format(time.strftime(
         '%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
-
+    Tensor = torch.cuda.FloatTensor if not args.local else torch.FloatTensor
+    adversarial_loss = torch.nn.BCELoss(reduction='none')
     cnt = 0
     max_epoch = 500
     for epoch in range(max_epoch):
@@ -119,15 +120,18 @@ if __name__ == "__main__":
             #L2 loss
             loss, losses, miss_rate,index = criterion(output,cfg['track'])
 
-            Tensor = torch.cuda.FloatTensor if not args.local else torch.FloatTensor
-            valid = Variable(Tensor(*output[0].shape[:3], 1).fill_(1.0), requires_grad=False)
-            adversarial_loss = torch.nn.BCELoss(reduction='none')
+            disc_input = output[3]
+            gather_traj = index.view(*index.shape,1,1,1).repeat(1,1,1,*disc_input['traj'].shape[-2:])
+            disc_input['traj'] = torch.gather(disc_input['traj'],2,gather_traj)
+
+            valid = Variable(Tensor(*output[0].shape[:2],1, 1).fill_(1.0), requires_grad=False)
             loss_mask = output[2]['tracks_to_predict']
 
             if cfg['track']=='interaction':
                 loss_mask = (loss_mask[:,0]*loss_mask[:,1])
                 valid = Variable(Tensor(*output[1].shape[:2], 1).fill_(1.0), requires_grad=False)
-            conf = disc(output[3])
+
+            conf = disc(disc_input,loss_mask)
             loss_g = torch.mean(adversarial_loss(conf, valid).squeeze(-1),-1)
             loss_g = loss_g*loss_mask
             loss_g = loss_g.sum()/max(loss_mask.sum(),1)
@@ -136,27 +140,22 @@ if __name__ == "__main__":
             nn.utils.clip_grad_norm_(
                 model.parameters(), max_norm=train_cfg['max_norm_gradient'])
             optimizer.step()
-
             #==============train disc====================
             optimizer_D.zero_grad()
             valid = Variable(Tensor(*output[0].shape[:2], 1, 1).fill_(1.0), requires_grad=False)
             fake = Variable(Tensor(*output[0].shape[:2], 1, 1).fill_(0.0), requires_grad=False)
-            input = output[3]
-            for k,v in input.items():
-                input[k] = v.detach()
-            input['pred_mask'] = input['gt_mask']
+            for k,v in disc_input.items():
+                disc_input[k] = v.detach()
+            disc_input['pred_mask'] = disc_input['gt_mask']
 
             if cfg['track']=='interaction':
                 index = index.unsqueeze(-1).repeat(1,2)
                 valid = Variable(Tensor(output[0].shape[0],1, 1).fill_(1.0), requires_grad=False)
                 fake = Variable(Tensor(output[0].shape[0], 1,1).fill_(0.0), requires_grad=False)
 
-            gather_traj = index.view(*index.shape,1,1,1).repeat(1,1,1,*input['traj'].shape[-2:])
-            input['traj'] = torch.gather(input['traj'],2,gather_traj)
-            fake_loss = adversarial_loss(disc(input), fake).squeeze(-1).squeeze(-1)
-
-            input['traj'] = input['gt_traj']
-            real_loss = adversarial_loss(disc(input), valid).squeeze(-1).squeeze(-1)
+            fake_loss = adversarial_loss(disc(disc_input,loss_mask), fake).squeeze(-1).squeeze(-1)
+            disc_input['traj'] = disc_input['gt_traj']
+            real_loss = adversarial_loss(disc(disc_input,loss_mask), valid).squeeze(-1).squeeze(-1)
 
             real_loss = (real_loss*loss_mask).sum()/loss_mask.sum()
             fake_loss = (fake_loss*loss_mask).sum()/loss_mask.sum()

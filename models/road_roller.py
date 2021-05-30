@@ -82,10 +82,10 @@ class road_roller(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-        self.prediction_head = rr_prediction_head(dropout)
+        self.prediction_head = rr_prediction_head(d_model*2, dropout)
 
 
-    def forward(self, disc):
+    def forward(self, disc, tracks_to_predcit):
         lane_mask = disc['output_lane_mask']
         lane = disc['output_lane']
         # reconstruct each trajectory
@@ -117,9 +117,21 @@ class road_roller(nn.Module):
         lane_mem = lane_mem.reshape(lane.shape[0],-1, *lane_mem.shape[-2:])
         lane_out = self.lane_dec(traj_emb, lane_mem, lane_mask, None)
 
+
+        center_emb = self.cent_emb(disc['center'])
+        yaw_emb = self.yaw_emb(disc['yaw'])
+        social_emb = self.social_emb(lane_out).squeeze(-2)
+        social_emb = torch.cat([center_emb, social_emb], dim=-1)
+        social_emb = self.fusion1cent(social_emb)
+        social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
+        social_emb = self.fusion1yaw(social_emb)
+        social_mem = self.social_enc(social_emb,tracks_to_predcit.unsqueeze(-2))
+
+        out = torch.cat([lane_out,social_mem.unsqueeze(-2)],-1)
+
         # =============social model
         # road roller da
-        out = self.prediction_head(lane_out,disc['obj_type'])
+        out = self.prediction_head(out,disc['obj_type'])
         return out
 
 

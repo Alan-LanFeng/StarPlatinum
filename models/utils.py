@@ -643,31 +643,22 @@ class intChoiceHead(nn.Module):
 
 
 class rr_prediction_head(nn.Module):
-    def __init__(self,dropout):
+    def __init__(self,input_dim, dropout):
         super(rr_prediction_head, self).__init__()
         self.head_veh = nn.Sequential(
-                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
-                        nn.Linear(128, 64, bias=True),
-                        nn.LayerNorm(64),
-                        nn.ReLU(),
-                        nn.Linear(64, 32, bias=True),
-                        nn.Linear(32, 1, bias=True),
+                        PointerwiseFeedforward(input_dim, 2 * input_dim, dropout=dropout),
+                        nn.Linear(input_dim, 128, bias=True),
+                        nn.Linear(128, 1, bias=True),
                         nn.Sigmoid())
         self.head_ped = nn.Sequential(
-                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
-                        nn.Linear(128, 64, bias=True),
-                        nn.LayerNorm(64),
-                        nn.ReLU(),
-                        nn.Linear(64, 32, bias=True),
-                        nn.Linear(32, 1, bias=True),
+                        PointerwiseFeedforward(input_dim, 2 * input_dim, dropout=dropout),
+                        nn.Linear(input_dim, 128, bias=True),
+                        nn.Linear(128, 1, bias=True),
                         nn.Sigmoid())
         self.head_cyc = nn.Sequential(
-                        PointerwiseFeedforward(128, 2 * 128, dropout=dropout),
-                        nn.Linear(128, 64, bias=True),
-                        nn.LayerNorm(64),
-                        nn.ReLU(),
-                        nn.Linear(64, 32, bias=True),
-                        nn.Linear(32, 1, bias=True),
+                        PointerwiseFeedforward(input_dim, 2 * input_dim, dropout=dropout),
+                        nn.Linear(input_dim,128, bias=True),
+                        nn.Linear(128, 1, bias=True),
                         nn.Sigmoid())
 
     def forward(self, x, idx):
