@@ -119,7 +119,8 @@ class WODEvaluator(object):
                         pass
                 out = model(data)
                 coord, score, new_data=out[0],out[1],out[2]
-                score = disc(out[3]).squeeze(-1)
+                # score = disc(out[3]).squeeze(-1)
+                # score = torch.softmax(score,-1)
                 coord = coord.detach()
                 score = score.detach()
 

@@ -78,8 +78,8 @@ class STF_the_world_v1(STF):
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
-        max_lane = torch.max(valid_len[:, 1])
-        max_adj_lane = torch.max(valid_len[:, 2])
+        max_lane = max(torch.max(valid_len[:, 1]), 1)
+        max_adj_lane = max(torch.max(valid_len[:, 2]), 1)
         disc = {}
 
         # ============================one hot=======================

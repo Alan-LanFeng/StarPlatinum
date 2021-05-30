@@ -89,7 +89,7 @@ class road_roller(nn.Module):
         lane_mask = disc['output_lane_mask']
         lane = disc['output_lane']
         # reconstruct each trajectory
-        max_adj_lane = torch.max(lane_mask.squeeze(-2).sum(-1))
+        max_adj_lane = max(torch.max(lane_mask.squeeze(-2).sum(-1)),1)
         lane = lane[:,:,:max_adj_lane]
         lane_mask = lane_mask[...,:max_adj_lane]
         batch,agent,prop = disc['traj'].shape[0],disc['traj'].shape[1],disc['traj'].shape[2]

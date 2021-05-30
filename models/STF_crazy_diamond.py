@@ -88,7 +88,7 @@ class STF_crazy_diamond(STF):
         # ==================one_hot===============
         gather_adj_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 660)
         adj_mask = torch.gather(data['adj_mask'], 1, gather_adj_mask)
-        max_adj_lane = torch.max(adj_mask.sum(-1))
+        max_adj_lane = max(torch.max(adj_mask.sum(-1)),1)
         adj_index = torch.gather(data['adj_index'], 1, gather_adj_mask)[..., :max_adj_lane]
         adj_mask = adj_mask[..., :max_adj_lane]
         gather_hist = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, 10, 4)

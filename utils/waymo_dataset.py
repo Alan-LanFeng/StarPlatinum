@@ -43,6 +43,16 @@ class WaymoDataset(Dataset):
         while l[i] != self.period:
             i = i + 2
         return int(l[i + 1]) // 5 if self.shrink else int(l[i + 1])
+        # TODO: when training in validation, uncomment this
+        # with open(os.path.join(self.root, 'len.txt'), 'r') as f:
+        #     l = f.read().split()
+        # i = 0
+        # while l[i] != self.period:
+        #     i = i + 2
+        # if self.period == 'training':
+        #     return int(l[i + 1]) + 44101
+        # else:
+        #     return int(l[i + 1])
 
     def __getitem__(self, index):
         cache_root = self.root[:self.root.find('trans')]
@@ -56,18 +66,35 @@ class WaymoDataset(Dataset):
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)
             data =  self.process(data)
-            return data
-            # if not os.path.exists(cache_file):
-            #     os.mknod(cache_file)
-            # with open(cache_file, 'wb') as f:
-            #     pickle.dump(data, f)
-            # return data
 
+            if not os.path.exists(cache_file):
+                os.mknod(cache_file)
+            with open(cache_file, 'wb') as f:
+                pickle.dump(data, f)
+            return data
+
+        # when training in 1988
         # cache_root = 's3://prediction/data/wod'
         # cache_file = os.path.join(cache_root, self.cache_name, self.period, f'{index}.pkl')
         # from petrel_client.client import Client
         # ceph = Client('~/petreloss.conf')
         # sample_bytes = ceph.get(cache_file)
+        # return pickle.loads(sample_bytes)
+
+        # when training in validation and 1988
+        # if index >= 487067:
+        #     period = 'validation'
+        #     index = index - 487067
+        # else:
+        #     period = self.period
+        #
+        # cache_root = 's3://prediction/data/wod'
+        # cache_file = os.path.join(cache_root, self.cache_name, period, f'{index}.pkl')
+        #
+        # sample_bytes = self.ceph.get(cache_file)
+        #
+        # if not sample_bytes:
+        #     print(cache_file)
         # return pickle.loads(sample_bytes)
 
     def hist_process(self, traj):
@@ -249,12 +276,12 @@ class WaymoDataset(Dataset):
 
         # obj type
         out['obj_type'] = np.pad(all_traj[:, CURRENT, 9], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
-        # try:
-        #     out['id'] = str(data['id'][0], 'utf-8')
-        #     out['theta'] = data['theta']
-        #     out['center'] = data['center']
-        # except:
-        #     pass
+        try:
+            out['id'] = str(data['id'][0], 'utf-8')
+            out['theta'] = data['theta']
+            out['center'] = data['center']
+        except:
+            pass
 
         return out
 
