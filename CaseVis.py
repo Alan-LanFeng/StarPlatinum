@@ -21,7 +21,7 @@ dx = [-1, 0, 1]
 dy = [-1, 0, 1]
 
 
-def draw_line(bucket, x0, x1, y0, y1, cx=300, cy=300, color=0.3, verbose=False):
+def draw_line(bucket,x0, x1, y0, y1, cx=300, cy=300, color=0.3, verbose=False):
     x0, x1, y0, y1 = int(x0), int(x1), int(y0), int(y1)
     leng = int(((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5)
     leng = max(1, leng)
@@ -92,6 +92,9 @@ def draw(data, new_data, pred, score, prefix):
     for i in range(gt.shape[0]):
         lane = data['lane_vector']
         l = lane[i]
+        adj_index = data['adj_index'][i][data['tracks_to_predict'][i]]
+        adj_index = torch.unique(adj_index).unsqueeze(1).unsqueeze(1).repeat(1, 9, 11)
+        l = torch.gather(l, 0, adj_index)
         n_line, n_point, n_channel = l.shape
 
         for j in range(n_line):
@@ -175,8 +178,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
-    dataset_cfg['cache'] = True
-    train_dataset = WaymoDataset(dataset_cfg, 'validation')
+    train_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
     print('len:', len(train_dataset))
 
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
@@ -199,7 +201,7 @@ if __name__ == "__main__":
                                           gamma=train_cfg['decay_rate'])
     model = torch.nn.DataParallel(model, list(range(gpu_num)))
     if not args.local:
-        model = torch.nn.DataParallel(model, list(range(gpu_num)))
+        #model = torch.nn.DataParallel(model, list(range(gpu_num)))
         model = model.to(device)
 
     if args.resume:

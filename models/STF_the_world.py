@@ -90,7 +90,7 @@ class STF_the_world(STF):
         one_hot_hist = one.unsqueeze(-2).repeat(1,1,10,1)
 
         # =======================================trajectory module===================================
-        hist = data['hist'][:, :max_agent]
+        hist = data['hist'][:, :max_agent].detach().clone()
         center = data['hist'][:, :max_agent][...,-1,2:].detach().clone()
         yaw = data['misc'][:,:max_agent,10,4].detach().clone()
 
@@ -217,4 +217,4 @@ class STF_the_world(STF):
         disc['gt_mask'] = gt_mask.unsqueeze(2)
         disc['pred_mask'] = torch.ones([*hist_mask.shape[:3], 80]).to(hist_mask.device).to(torch.bool)
 
-        return outputs_coord, outputs_class, new_data,disc
+        return outputs_coord, outputs_class, new_data

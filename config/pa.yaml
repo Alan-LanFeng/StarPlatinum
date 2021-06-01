@@ -1,27 +1,42 @@
 # Config format schema number
 format_version: 4
 
-vanilla_model_name: 'STF_rg_hi_pyf'
-vanilla_ckpt: 'STF_rg_hi_pyf_9_119'
-oracle_model_name: 'STF_rg_hi_pyf_oracle'
-oracle_ckpt: 'oracle_126'
+vanilla_model_name: 'STF_the_world'
+vanilla_ckpt: 'STF_the_world_10'
+oracle_model_name: 'STF_king_crimson'
+oracle_ckpt: 'STF_king_crimson_crash_9'
 track: 'motion'
 
 # dataset related
 dataset_cfg:
-  cache: True
+  cache: False
   cache_name: cache2
-  shrink: True
+  shrink: False
   dataset_dir: '/data/uncompressed/trans_val'
   # dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
-  shuffle: False
+  shuffle: True
   batch_size: 4
-  num_workers: 0
+  num_workers: 1
 
 # model related
-model_cfg:
+vanilla_model_cfg:
   #vector net related
-  lane_dims: 6
+  lane_dims: 11
+  traj_dims: 7
+  out_dims: 160
+  subgraph_width_unit: 32
+  num_subgraph_layers: 2
+  prop_num: 6
+  d_model: 128
+  attention_head: 2
+  dropout: 0.0
+  model_layers_num: 2
+  max_pred_num: 8
+
+# model related
+oracle_model_cfg:
+  #vector net related
+  lane_dims: 11
   traj_dims: 4
   out_dims: 160
   subgraph_width_unit: 32

@@ -6,14 +6,14 @@ track: 'motion'
 
 # dataset related
 dataset_cfg:
-  cache: True
+  cache: False
   cache_name: 'cache10'
   shrink: False
-  dataset_dir: '/mnt/lustre/share/zhangqihang/WOD/trans'
+  dataset_dir: '/data/uncompressed/trans_val'
   #dataset_dir: '/home/SENSETIME/fenglan/waymo-challenge/trans'
   shuffle: True
-  batch_size: 64
-  num_workers: 8
+  batch_size: 8
+  num_workers: 0
 
 # model related
 model_cfg:

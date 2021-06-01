@@ -15,7 +15,6 @@ from utils.utilities import load_model_class, load_checkpoint, save_checkpoint
 from l5kit.configs import load_config_data
 from utils.criterion import Loss
 
-
 class Canvas:
     def __init__(self, L, R, D, U):
         self.L = L - 10
@@ -137,14 +136,16 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
         canvas = Canvas(L[i], R[i], D[i], U[i])
         # 1. build cost map with LANE INFO
         cur_lane = lane[i]
-        cur_lane = cur_lane[cur_lane[..., 4] == 15]
-        cur_lane = cur_lane[cur_lane[..., 5] == 1][..., :4].T.tolist()
+        # cur_lane = cur_lane[cur_lane[..., 4] == 15]
+        # cur_lane = cur_lane[cur_lane[..., 5] == 1]
+        cur_lane = cur_lane[..., :4].reshape(-1,4).T.tolist()
+
         canvas.stash()
         canvas.draw(cur_lane[0], cur_lane[1], cur_lane[2], cur_lane[3], lambda x, y: 0.6)
         canvas.flush()
         # car iteration
         canvas.stash()
-        for j in range(ora_coord.shape[1]):
+        for j in range(1, ora_coord.shape[1]):
             # proposal iteration
             for k in range(ora_coord.shape[2]):
                 # build cost map with ora-COORD
@@ -153,12 +154,19 @@ def loss_function(data, idx, coord, score, new_data, ora_coord, ora_score, ora_n
                 canvas.draw(ora_pred[0][:-1], ora_pred[1][:-1], ora_pred[0][1:], ora_pred[1][1:], lambda x, y: 1.0, 2, True)
         canvas.flush()
 
+        # canvas.stash()
+        # ego_coord = plan_coord[i].T.tolist()
+        # canvas.draw(ego_coord[0][:-1], ego_coord[1][:-1], ego_coord[0][1:], ego_coord[1][1:], lambda x, y: 1.0, 5, True)
+        # canvas.flush()
+
+        if log:
+            canvas.to_image(i)
         # calculate pro-active proposal loss
         sloss, dloss = canvas.collect_loss(plan_coord[i])
         losses.append(sloss)
         dlosses.append(dloss)
-        if log:
-            canvas.to_image(i)
+    #..., 80, 2
+    dcum = lambda x: x - torch.cat([torch.zeros_like(x[..., 0, :]).unsqueeze(-2), x[..., :-1, :]], dim=-2)
     return losses, dlosses, plan_coord.std(1).sum(1), ora_coord.std(-2).sum([1,2,3])
 
 
@@ -188,17 +196,18 @@ if __name__ == "__main__":
     start_time = time.time()
 
     dataset_cfg = cfg['dataset_cfg']
-    train_dataset = WaymoDataset(dataset_cfg, 'validation_interactive')
+    train_dataset = WaymoDataset(dataset_cfg, 'testing')
     print('len:', len(train_dataset))
 
     train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
     # =================================== INIT Model ============================================================
     vanilla_model = load_model_class(cfg['vanilla_model_name'])
-    model_cfg = cfg['model_cfg']
-    vanilla_model = vanilla_model(model_cfg)
+    vanilla_model_cfg = cfg['vanilla_model_cfg']
+    oracle_model_cfg = cfg['oracle_model_cfg']
+    vanilla_model = vanilla_model(vanilla_model_cfg)
     oracle_model = load_model_class(cfg['oracle_model_name'])
-    oracle_model = oracle_model(model_cfg)
+    oracle_model = oracle_model(oracle_model_cfg)
 
     if not args.local:
         vanilla_model = torch.nn.DataParallel(vanilla_model, list(range(gpu_num)))
@@ -250,21 +259,28 @@ if __name__ == "__main__":
         centroid = centroid.view(*yaw.shape, 1, 1, 2)
         coord = coord.cumsum(-2) + centroid
         batch_size = coord.shape[0]
-        losses = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
-        dlosses = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
-        egojes = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
-        otherjes = torch.zeros(coord.shape[0], cfg['model_cfg']['prop_num'])
-        for k in range(cfg['model_cfg']['prop_num']):
+        losses = torch.zeros(coord.shape[0], cfg['vanilla_model_cfg']['prop_num'])
+        dlosses = torch.zeros(coord.shape[0], cfg['vanilla_model_cfg']['prop_num'])
+        egojes = torch.zeros(coord.shape[0], cfg['vanilla_model_cfg']['prop_num'])
+        otherjes = torch.zeros(coord.shape[0], cfg['vanilla_model_cfg']['prop_num'])
+
+        import copy
+        clean = lambda x: torch.tensor(x).detach().cpu()
+        get_id_without_clean = lambda x: torch.zeros_like(x).scatter_(1, x.argsort(), torch.ones_like(x).cumsum(-1)-1)
+        get_id = lambda x: get_id_without_clean(clean(x))
+        for k in range(cfg['vanilla_model_cfg']['prop_num']):
+            tmp = data['misc'].detach().clone()
             for i in range(coord.shape[0]):
                 ego_future_path = coord[i, k]
-                tmp = torch.where(data['tracks_to_predict'][i]==True)
                 idx = torch.where(data['tracks_to_predict'][i]==True)[0][0]
+
                 data['misc'][i, idx, 11:, :2] = ego_future_path
-                path = data['misc'][i, idx].detach().cpu().numpy()
                 data['misc'][i, idx, 11:, -2].fill_(1)
 
             ora_coord, ora_score, ora_new_data = oracle_model(data)
-            loss, dloss, egoj, otherj = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data)
+            loss, dloss, egoj, otherj = loss_function(data, k, coord, score, new_data, ora_coord, ora_score, ora_new_data, False)
+
+            data['misc'] = tmp.clone()
             losses[:, k] = torch.tensor(loss).clone().detach().cpu()
             dlosses[:, k] = torch.tensor(dloss).clone().detach().cpu()
             egojes[:, k] = torch.tensor(egoj).clone().detach().cpu()
@@ -274,15 +290,21 @@ if __name__ == "__main__":
         dist = new_data['gt'][:, ego_index, -1, :].unsqueeze(1) - coord[:, :, -1]
         dist = torch.norm(dist, dim=-1, p=2)
         gt_idx = dist.argsort(dim=-1).cpu()
-        # losses, dlosses, egojes, otherjes, gt_idx
-        a.append(losses.argsort(dim=-1))
-        b.append(dlosses.argsort(dim=-1))
-        cc.append(egojes.argsort(dim=-1))
-        d.append(otherjes.argsort(dim=-1))
-        e.append(pred_idx)
-        g.append(gt_idx)
+        losses, dlosses, egojes, otherjes, gt_idx
+        a.append(get_id(losses))
+        b.append(get_id(dlosses))
+        cc.append(get_id(egojes))
+        d.append(get_id(otherjes))
+        e.append(get_id(score[:,0]))
+        g.append(get_id(dist.cpu()))
+        # a.append(losses)
+        # b.append(dlosses)
+        # cc.append(egojes)
+        # d.append(otherjes)
+        # e.append(score[:, 0].cpu())
+        # g.append(dist.cpu())
         xxx += 1
-        if xxx == 10:
+        if xxx == 100:
             break
     a = torch.cat(a, dim=0).unsqueeze(-1).type(torch.float)
     b = torch.cat(b, dim=0).unsqueeze(-1).type(torch.float)
@@ -291,8 +313,11 @@ if __name__ == "__main__":
     e = torch.cat(e, dim=0).unsqueeze(-1).type(torch.float)
     g = torch.cat(g, dim=0).unsqueeze(-1).type(torch.float)
     p = torch.cat([a,b,cc,d,e,g], dim=-1).reshape(-1, 6)
-    p = torch.nn.functional.normalize(p, dim=0, p=2)
-    print(p.shape)
+    A = torch.cat([a,b,cc,d,e, torch.ones_like(e)], dim=-1).reshape(-1, 6)
+    X = g.reshape(-1, 1)
+    print(A.shape, X.shape)
+    res = np.linalg.lstsq(A.detach().cpu(), X.detach().cpu(), rcond=None)
+    print(res)
 
     import pandas as pd
     px = pd.DataFrame(p.detach().numpy())

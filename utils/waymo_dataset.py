@@ -249,12 +249,12 @@ class WaymoDataset(Dataset):
 
         # obj type
         out['obj_type'] = np.pad(all_traj[:, CURRENT, 9], (0, MAX_NBRS_NUM + 1 - valid_agent_num)).astype(int)
-        # try:
-        #     out['id'] = str(data['id'][0], 'utf-8')
-        #     out['theta'] = data['theta']
-        #     out['center'] = data['center']
-        # except:
-        #     pass
+        try:
+            out['id'] = str(data['id'][0], 'utf-8')
+            out['theta'] = data['theta']
+            out['center'] = data['center']
+        except:
+            pass
 
         return out
 

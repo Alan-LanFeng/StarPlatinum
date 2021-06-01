@@ -82,7 +82,7 @@ class STF_king_crimson(STF):
         max_adj_lane = torch.max(valid_len[:, 2])
 
         # =======================================trajectory module===================================
-        hist = data['hist'][:, :max_agent]
+        hist = data['hist'][:, :max_agent].detach().clone()
         center = data['hist'][:, :max_agent][...,-1,2:].detach().clone()
         yaw = data['misc'][:,:max_agent,10,4].detach().clone()
 

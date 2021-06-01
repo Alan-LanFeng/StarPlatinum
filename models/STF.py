@@ -79,7 +79,7 @@ class STF(nn.Module):
             ego_gt[:, 0] -= center[i, idx, 0]
             ego_gt[:, 1] -= center[i, idx, 1]
             ego_gt[:, :2] = self._rotate(ego_gt[:, :2], yaw[i, idx])
-            ego_gt_mask = data['misc'][i, idx, 10:, -2]
+            ego_gt_mask = data['misc'][i, idx, 10:, -2].detach().clone()
             exp_hist[i, idx, 10:, :] = torch.cat([ego_gt[:-1, :], ego_gt[1:, :]], dim=-1)
             exp_hist_mask[i, idx, :, 10:] = (ego_gt_mask[:-1] * ego_gt_mask[1:]).type(torch.bool)
         return exp_hist, exp_hist_mask
@@ -101,7 +101,7 @@ class STF(nn.Module):
         gather_gt_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, gt_mask.shape[-1])
         gt_mask = torch.gather(gt_mask, 1, gather_gt_mask)
 
-        misc = data['misc'][:, :max_agent]
+        misc = data['misc'][:, :max_agent].detach().clone()
         misc = torch.gather(misc, 1, gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *misc.shape[-2:]))
 
         centroid = data['centroid'][:, :max_agent]

@@ -11,12 +11,13 @@ import numpy as np
 
 from torch import nn, optim
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from tqdm import tqdm
 from utils.waymo_dataset import WaymoDataset
 from l5kit.configs import load_config_data
 
 from utils.utilities import (load_checkpoint, save_checkpoint, load_model_class,
-                                 vis_argoverse, set_model_grad, fix_parameter_except)
+                             vis_argoverse, set_model_grad, fix_parameter_except)
 
 
 def rotate(x, theta):
@@ -27,7 +28,7 @@ def rotate(x, theta):
 
 
 class Submit:
-    def __init__(self):
+    def __init__(self, dir='./submissions'):
         self.submission = motion_submission_pb2.MotionChallengeSubmission()
 
         # meta info
@@ -37,6 +38,7 @@ class Submit:
 
         self.cnt = 0
         self.last_cnt = 0
+        self.dir = dir
 
     def fill(self, output, data, new_data):
         # The set of scenario predictions to evaluate.
@@ -49,14 +51,20 @@ class Submit:
             except:
                 pass
         for k in output.keys():
-            output[k] = wash(output[k])
+            try:
+                output[k] = wash(output[k])
+            except:
+                pass
         for k in new_data.keys():
-            new_data[k] = wash(new_data[k])
+            try:
+                new_data[k] = wash(new_data[k])
+            except:
+                pass
 
         coord = output['pred_coords']  # example: 32, 8, 6, 80, 2
         coord = coord.cumsum(-2)
         logit = output['pred_logits']  # example: 32, 8, 6
-        idx = np.argsort(logit, -1)[...,::-1]
+        idx = np.argsort(logit, -1)[..., ::-1]
         centroid = new_data['centroid']
         batch_size, car_num, K = coord.shape[:3]
         for i in range(batch_size):
@@ -81,7 +89,7 @@ class Submit:
                 coord[i, j] = rotate(coord[i, j], -1 * data['theta'][i])
                 coord[i, j] += data['center'][i][np.newaxis, np.newaxis, :]
                 for ki in range(K):
-                    k = idx[i,j,ki]
+                    k = idx[i, j, ki]
                     scored_traj = motion_submission_pb2.ScoredTrajectory()
 
                     scored_traj.confidence = float(logit[i, j, k])
@@ -107,11 +115,11 @@ class Submit:
         if self.last_cnt == self.cnt:
             return
 
-        dir = './submissions'
+        dir = self.dir
         if not os.path.exists(dir):
             os.makedirs(dir)
 
-        with open(dir+f'/your_preds_{self.cnt}.bin', 'wb') as f:
+        with open(dir + f'/your_preds_{self.cnt}.bin', 'wb') as f:
             s = self.submission.SerializeToString()
             f.write(s)
 
@@ -150,23 +158,33 @@ if __name__ == "__main__":
                                   num_workers=dataset_cfg['num_workers'] * (not args.local))
 
     # =================================== INIT MODEL ============================================================
-    model = load_model_class(cfg['model_name'])
-    model_cfg = cfg['model_cfg']
-    model = model(model_cfg)
-    train_cfg = cfg['train_cfg']
-    optimizer = optim.AdamW(model.parameters(), lr=train_cfg['lr'], betas=(0.9, 0.999), eps=1e-09,
-                            weight_decay=train_cfg['weight_decay'], amsgrad=True)
-    model = torch.nn.DataParallel(model, list(range(gpu_num))) if args.local else torch.nn.DataParallel(model, list(
-        range(gpu_num))).cuda()
+    vanilla_model = load_model_class(cfg['vanilla_model_name'])
+    vanilla_model_cfg = cfg['vanilla_model_cfg']
+    oracle_model_cfg = cfg['oracle_model_cfg']
+    vanilla_model = vanilla_model(vanilla_model_cfg)
+    oracle_model = load_model_class(cfg['oracle_model_name'])
+    oracle_model = oracle_model(oracle_model_cfg)
+
+    if not args.local:
+        vanilla_model = torch.nn.DataParallel(vanilla_model, list(range(gpu_num)))
+        vanilla_model = vanilla_model.to(device)
+        oracle_model = torch.nn.DataParallel(oracle_model, list(range(gpu_num)))
+        oracle_model = oracle_model.to(device)
+
     resume_model_name = os.path.join(
-        'saved_models', '{}.pt'.format(args.model_name))
-    model = load_checkpoint(resume_model_name, model, optimizer, args.local)
+        'saved_models', '{}.pt'.format(cfg['vanilla_ckpt']))
+    vanilla_model = load_checkpoint(resume_model_name, vanilla_model, None, args.local)
+    print('Successful Resume model {}'.format(resume_model_name))
+    resume_model_name = os.path.join(
+        'saved_models', '{}.pt'.format(cfg['oracle_ckpt']))
+    oracle_model = load_checkpoint(resume_model_name, oracle_model, None, args.local)
     print('Successful Resume model {}'.format(resume_model_name))
 
-
     submit = Submit()
+    submit_pro = Submit('./sub_pro')
     with torch.no_grad():
-        model.eval()
+        vanilla_model.eval()
+        oracle_model.eval()
         progress_bar = tqdm(train_dataloader)
         cnt = 0
         for j, data in enumerate(progress_bar):
@@ -175,9 +193,44 @@ if __name__ == "__main__":
                     data[key] = data[key].float()
                 if isinstance(data[key], torch.Tensor) and not args.local:
                     data[key] = data[key].to('cuda:0')
-            outputs_coord, outputs_class, new_data = model(data)
-            output = {}
-            output['pred_coords'] = outputs_coord
-            output['pred_logits'] = outputs_class
+            outputs_coord, outputs_class, new_data = vanilla_model(data)
+            output, output_pro = {}, {}
+            output['pred_coords'] = outputs_coord.detach().clone()
+            output_pro['pred_coords'] = outputs_coord.detach().clone()
+            output['pred_logits'] = outputs_class.detach().clone()
+            batch_size, car_num, k = outputs_class.shape
+
+            coord = outputs_coord.detach().clone()
+            centroid = new_data['centroid']
+            yaw = new_data['misc'][..., 10, 4]
+            s, c = torch.sin(yaw).unsqueeze(-1).unsqueeze(-1), torch.cos(yaw).unsqueeze(-1).unsqueeze(-1)
+            coord[..., 0], coord[..., 1] = c * coord[..., 0] - s * coord[..., 1], \
+                                           s * coord[..., 0] + c * coord[..., 1]
+            centroid = centroid.view(*centroid.shape[:2], 1, 1, 2)
+            coord = coord.cumsum(-2) + centroid
+
+            ttp = data['tracks_to_predict'].cumsum(-1)
+            pro_class = torch.ones_like(outputs_class)
+            import copy
+            for ic in range(car_num):
+                for ik in range(k):
+                    tmp = data['misc'].clone()
+                    for ib in range(batch_size):
+                        ego_future = coord[ib, ic, ik]
+                        cnt = torch.where(ttp[ib] == ic + 1)[0]
+
+                        data['misc'][ib, cnt, 11:, :2] = ego_future
+                        data['misc'][ib, cnt, 11:, -2].fill_(1)
+
+                    ora_coord, ora_score, ora_new_data = oracle_model(data)
+                    egojes = coord[:, ic, ik].std(1).sum(1)
+                    egojes = F.softmax(egojes)
+                    otherjes = ora_coord.cumsum(-2).std(-2).sum([1,2,3])
+                    otherjes = F.softmax(otherjes)
+                    pro_class[:, ic, ik] = egojes
+                    data['misc'] = tmp.clone()
+            output_pro['pred_logits'] = pro_class
+            submit_pro.fill(output_pro, data, new_data)
             submit.fill(output, data, new_data)
     submit.write()
+    submit_pro.write()
