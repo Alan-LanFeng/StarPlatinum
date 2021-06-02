@@ -21,9 +21,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_the_world_v1(STF):
+class STF_the_world_v3(STF):
     def __init__(self, cfg):
-        super(STF_the_world_v1, self).__init__(cfg)
+        super(STF_the_world_v3, self).__init__(cfg)
 
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -73,7 +73,7 @@ class STF_the_world_v1(STF):
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-
+        self.social_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
@@ -151,10 +151,12 @@ class STF_the_world_v1(STF):
         social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
         social_emb = self.fusion1yaw(social_emb)
 
-        social_mem = self.social_enc(social_emb, social_mask)
-        social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
-        out = torch.cat([social_out, lane_out], -1)
+        social_mem = self.social_enc(social_emb, social_mask).unsqueeze(1).repeat(1,max_agent,1,1)
 
+        #social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
+        #out = torch.cat([social_out, lane_out], -1)
+        social_mask = social_mask.repeat(1,max_agent,1).unsqueeze(-2)
+        out = self.social_dec(lane_out,social_mem,social_mask,None)
         # gather
         gather_list, new_data = self._gather_new_data(data, max_agent)
 
