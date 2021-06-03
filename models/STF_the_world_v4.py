@@ -9,7 +9,7 @@ from models.utils import (
 )
 from models.STF import STF
 import copy
-
+import math
 
 def bool2index(mask):
     seq = torch.arange(mask.shape[-1]).to(mask.device)
@@ -21,9 +21,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_the_world_v3(STF):
+class STF_the_world_v4(STF):
     def __init__(self, cfg):
-        super(STF_the_world_v3, self).__init__(cfg)
+        super(STF_the_world_v4, self).__init__(cfg)
 
         d_model = cfg['d_model']
         h = cfg['attention_head']
@@ -146,10 +146,31 @@ class STF_the_world_v3(STF):
             social_mask[i, 0, :social_valid_len[i]] = 1
         social_emb = self.social_emb(lane_out)
         social_emb = torch.max(social_emb, -2)[0]
-        social_emb = torch.cat([center_emb, social_emb], dim=-1)
-        social_emb = self.fusion1cent(social_emb)
-        social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
-        social_emb = self.fusion1yaw(social_emb)
+
+        pe = torch.zeros_like(social_emb).to(social_emb.device)
+        d_model = 64
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).to(social_emb.device)
+        center_x = center[...,0].unsqueeze(-1).repeat(1,1,32)
+        center_y = center[..., 1].unsqueeze(-1).repeat(1, 1, 32)
+        pe[...,0:64:2] = torch.sin(center_x*div_term)
+        pe[...,1:64:2] = torch.cos(center_x*div_term)
+        pe[...,64::2] = torch.sin(center_y*div_term)
+        pe[...,65::2] = torch.cos(center_y*div_term)
+        #a = pe.numpy()
+        yaw_pe = torch.zeros_like(social_emb).to(social_emb.device)
+        d_model = 128
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).to(social_emb.device)
+        cos_yaw = yaw_1[...,0].unsqueeze(-1).repeat(1,1,64)
+        sin_yaw = yaw_1[...,1].unsqueeze(-1).repeat(1,1,64)
+        yaw_pe[...,0::2] = torch.sin(cos_yaw * div_term)
+        yaw_pe[..., 1::2] = torch.cos(sin_yaw * div_term)
+
+        all_pe = pe + yaw_pe
+        social_emb = social_emb + all_pe
+        # social_emb = torch.cat([center_emb, social_emb], dim=-1)
+        # social_emb = self.fusion1cent(social_emb)
+        # social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
+        # social_emb = self.fusion1yaw(social_emb)
 
         social_mem = self.social_enc(social_emb, social_mask).unsqueeze(1).repeat(1,max_agent,1,1)
 
