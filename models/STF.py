@@ -21,7 +21,7 @@ class STF(nn.Module):
         h = cfg['attention_head']
         dropout = cfg['dropout']
         N = cfg['model_layers_num']
-        traj_dims = cfg['traj_dims']
+
         dec_out_size = cfg['out_dims']
 
         c = copy.deepcopy
@@ -36,7 +36,7 @@ class STF(nn.Module):
         self.hist_tf = EncoderDecoder(
             Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
             Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
-            nn.Sequential(LinearEmbedding(traj_dims, d_model), c(position))
+            c(position)
         )
         self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
 

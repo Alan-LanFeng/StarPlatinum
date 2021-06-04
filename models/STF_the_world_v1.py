@@ -5,7 +5,7 @@ from models.utils import (
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
     LinearEmbedding, LaneNet,
-    ChoiceHead
+    ChoiceHead,PosYawEmbed
 )
 from models.STF import STF
 import copy
@@ -31,6 +31,7 @@ class STF_the_world_v1(STF):
         N = cfg['model_layers_num']
         prop_num = cfg['prop_num']
         dec_out_size = cfg['out_dims']
+        traj_dims = cfg['traj_dims']
         pos_dim = 16
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
@@ -45,28 +46,6 @@ class STF_the_world_v1(STF):
         self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
         self.prediction_head = ChoiceHead(d_model * 2, dec_out_size, dropout)
 
-        self.cent_emb = nn.Sequential(
-            nn.Linear(2, pos_dim, bias=True),
-            nn.LayerNorm(pos_dim),
-            nn.ReLU(),
-            nn.Linear(pos_dim, pos_dim, bias=True))
-        self.yaw_emb = nn.Sequential(
-            nn.Linear(2, pos_dim, bias=True),
-            nn.LayerNorm(pos_dim),
-            nn.ReLU(),
-            nn.Linear(pos_dim, pos_dim, bias=True))
-
-        self.fusion1cent = nn.Sequential(
-            nn.Linear(d_model + pos_dim, d_model, bias=True),
-            nn.LayerNorm(d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model, bias=True))
-        self.fusion1yaw = nn.Sequential(
-            nn.Linear(d_model + pos_dim, d_model, bias=True),
-            nn.LayerNorm(d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model, bias=True))
-
         self.social_emb = nn.Sequential(
             nn.Linear(d_model, d_model, bias=True),
             nn.LayerNorm(d_model),
@@ -74,7 +53,10 @@ class STF_the_world_v1(STF):
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
 
+        self.hist_emb = LinearEmbedding(traj_dims, d_model)
 
+        self.py_emb = PosYawEmbed(d_model)
+        #self.dist_emb = distEmbed(d_model)
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
@@ -92,10 +74,7 @@ class STF_the_world_v1(STF):
         hist = data['hist'][:, :max_agent]
         center = data['hist'][:, :max_agent][...,-1,2:].detach().clone()
         yaw = data['misc'][:,:max_agent,10,4].detach().clone()
-
         yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
-        center_emb = self.cent_emb(center)
-        yaw_emb = self.yaw_emb(yaw_1)
 
         hist[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
         hist[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2],1,1).repeat(1,1,10,2)
@@ -106,8 +85,10 @@ class STF_the_world_v1(STF):
 
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
-                                                                                                       1, 1)
-        hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
+                                                                                                              1, 1)
+
+        hist_emb = self.hist_emb(hist)
+        hist_out = self.hist_tf(hist_emb, self.query_batches, hist_mask, None)
 
         # ====================================rg and ts module========================================
         lane = data['lane_vector'][:, :max_lane]
@@ -146,12 +127,9 @@ class STF_the_world_v1(STF):
             social_mask[i, 0, :social_valid_len[i]] = 1
         social_emb = self.social_emb(lane_out)
         social_emb = torch.max(social_emb, -2)[0]
-        social_emb = torch.cat([center_emb, social_emb], dim=-1)
-        social_emb = self.fusion1cent(social_emb)
-        social_emb = torch.cat([yaw_emb, social_emb], dim=-1)
-        social_emb = self.fusion1yaw(social_emb)
 
-        social_mem = self.social_enc(social_emb, social_mask)
+        self.py_emb.add_py(center,yaw_1)
+        social_mem = self.social_enc(social_emb, social_mask,self.py_emb)
         social_out = social_mem.unsqueeze(dim=2).repeat(1, 1, hist_out.shape[-2], 1)
         out = torch.cat([social_out, lane_out], -1)
 

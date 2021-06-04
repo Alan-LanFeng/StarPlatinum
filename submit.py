@@ -15,8 +15,7 @@ from tqdm import tqdm
 from utils.waymo_dataset import WaymoDataset
 from l5kit.configs import load_config_data
 
-from utils.utilities import (load_checkpoint, save_checkpoint, load_model_class,
-                                 vis_argoverse, set_model_grad, fix_parameter_except)
+from utils.utilities import (load_checkpoint,load_model_class)
 
 
 def rotate(x, theta):
@@ -142,7 +141,7 @@ if __name__ == "__main__":
 
     # print(cfg)
     dataset_cfg = cfg['dataset_cfg']
-    dataset_cfg['dataset_dir'] = '/home/SENSETIME/fenglan/trans'
+    #dataset_cfg['dataset_dir'] = '/home/SENSETIME/fenglan/trans'
     train_dataset = WaymoDataset(dataset_cfg, 'validation')
 
     print('len:', len(train_dataset))
@@ -176,7 +175,7 @@ if __name__ == "__main__":
                     data[key] = data[key].float()
                 if isinstance(data[key], torch.Tensor) and not args.local:
                     data[key] = data[key].to('cuda:0')
-            outputs_coord, outputs_class, new_data = model(data)
+            outputs_coord, outputs_class, new_data,_ = model(data)
             output = {}
             output['pred_coords'] = outputs_coord
             output['pred_logits'] = outputs_class

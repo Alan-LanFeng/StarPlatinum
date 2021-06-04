@@ -11,11 +11,11 @@ class EncoderDecoder(nn.Module):
     other models.
     """
 
-    def __init__(self, encoder, decoder, src_embed):
+    def __init__(self, encoder, decoder, pos_embed):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
-        self.src_embed = src_embed
+        self.pos_embed = pos_embed
 
     def forward(self, src, tgt, src_mask, tgt_mask, query_pos=None):
         """
@@ -25,7 +25,7 @@ class EncoderDecoder(nn.Module):
         return self.decode(output, src_mask, tgt, tgt_mask, query_pos)
 
     def encode(self, src, src_mask):
-        return self.encoder(self.src_embed(src), src_mask)
+        return self.encoder(src, src_mask,self.pos_embed)
 
     def decode(self, memory, src_mask, tgt, tgt_mask, query_pos=None):
         return self.decoder(tgt, memory, src_mask, tgt_mask, query_pos)
@@ -41,11 +41,12 @@ class Encoder(nn.Module):
         self.layers = clones(layer, n)
         self.norm = nn.LayerNorm(layer.size)
 
-    def forward(self, x, x_mask):
+    def forward(self, x, x_mask,pe=None):
         """
         Pass the input (and mask) through each layer in turn.
         """
         for layer in self.layers:
+            x = pe(x) if pe else x
             x = layer(x, x_mask)
         return self.norm(x)
 
@@ -265,6 +266,27 @@ class PositionalEncoding(nn.Module):
         # x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
         x = x + Variable(self.pe[:x.shape[-2]], requires_grad=False)
         return self.dropout(x)
+
+class PosYawEmbed(nn.Module):
+    """
+    Implement the PE function.
+    """
+    def __init__(self,d_model):
+        super(PosYawEmbed, self).__init__()
+        # self.dropout = nn.Dropout(p=dropout)
+        #
+        self.pos_emb = nn.Linear(2, d_model, bias=True)
+        self.yaw_emb = nn.Linear(2, d_model, bias=True)
+    def add_py(self,pos,yaw):
+        self.pos = pos
+        self.yaw = yaw
+    def forward(self, x):
+        pos = self.pos_emb(self.pos)
+        yaw = self.yaw_emb(self.yaw)
+        x = x + pos + yaw
+        return x
+
+
 
 
 class FeedForwardWarrper(nn.Module):
