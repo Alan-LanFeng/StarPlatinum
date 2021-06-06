@@ -30,6 +30,7 @@ class STF_the_world_v2(STF):
         dropout = cfg['dropout']
         N = cfg['model_layers_num']
         dec_out_size = cfg['out_dims']
+        traj_dims = cfg['traj_dims']
         pos_dim = 16
         c = copy.deepcopy
         attn = MultiHeadAttention(h, d_model, dropout)
@@ -40,6 +41,7 @@ class STF_the_world_v2(STF):
             cfg['subgraph_width_unit'],
             cfg['num_subgraph_layers'])
         self.lane_emb = LinearEmbedding(cfg['subgraph_width_unit'] * 2, d_model)
+        self.tra_emb = LinearEmbedding(cfg['subgraph_width_unit'] * 2, d_model)
         self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
         self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
         self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
@@ -84,6 +86,7 @@ class STF_the_world_v2(STF):
             nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
+        self.hist_emb = LinearEmbedding(traj_dims, d_model)
 
     def forward(self, data: dict):
         valid_len = data['valid_len']
@@ -143,7 +146,8 @@ class STF_the_world_v2(STF):
         hist_mask = data['hist_mask'].unsqueeze(-2)[:, :max_agent]
         self.query_batches = self.query_embed.weight.view(1, 1, *self.query_embed.weight.shape).repeat(*hist.shape[:2],
                                                                                                        1, 1)
-        hist_out = self.hist_tf(hist, self.query_batches, hist_mask, None)
+        hist_emb = self.hist_emb(hist)
+        hist_out = self.hist_tf(hist_emb, self.query_batches, hist_mask, None)
 
         # ====================================rg and ts module========================================
         lane = data['lane_vector'][:, :max_lane]
@@ -164,39 +168,57 @@ class STF_the_world_v2(STF):
         # =====================disc==========================================
         output_lane = lane
         # =====================disc==========================================
+        social_valid_len = data['valid_len'][:, 0] + 1
+        social_mask = torch.zeros((lane.shape[0], 1, max_agent)).to(lane.device)
+        for i in range(adj_traj.shape[0]):
+            social_mask[i, 0, :social_valid_len[i]] = 1
+        social_mask = social_mask.repeat(1, social_mask.shape[-1], 1).unsqueeze(-2).reshape(-1, *social_mask.shape[-2:]).to(bool)
+        adj_traj = adj_traj.reshape(adj_traj.shape[0],-1,*adj_traj.shape[-2:])
+        traj_enc = self.adj_net(adj_traj)
+        traj_enc = traj_enc.reshape(traj_enc.shape[0], max_agent, -1, traj_enc.shape[-1])
+        traj_enc = traj_enc.reshape(-1, *traj_enc.shape[-2:])
+
+
         lane = lane.reshape(lane.shape[0],-1,*lane.shape[-2:])
         lane_enc = self.lanenet(lane)
         lane_enc = lane_enc.reshape(lane_enc.shape[0],max_agent,max_adj_lane,lane_enc.shape[-1])
         lane_enc = lane_enc.reshape(-1,*lane_enc.shape[-2:])
         lane_mask = adj_mask.reshape(-1,*adj_mask.shape[-2:])
 
-        lane_mem = self.lane_enc(self.lane_emb(lane_enc), lane_mask)
-        lane_mem = lane_mem.reshape(*hist_out.shape[:2],*lane_mem.shape[-2:])
+        lane_mask = torch.cat([lane_mask,social_mask],-1)
 
+        lane_enc = self.lane_emb(lane_enc)
+        traj_enc = self.tra_emb(traj_enc)
+        lane_enc = torch.cat([lane_enc,traj_enc],-2)
+
+        lane_mem = self.lane_enc(lane_enc, lane_mask)
+        lane_mem = lane_mem.reshape(*hist_out.shape[:2],*lane_mem.shape[-2:])
+        social_mask = social_mask.reshape(hist_out.shape[0],-1,*social_mask.shape[-2:])
+        adj_mask = torch.cat([adj_mask,social_mask],-1)
         lane_out = self.lane_dec(hist_out, lane_mem, adj_mask, None)
 
         # ===================high-order interaction module=============================================
-        adj_traj = adj_traj.reshape(adj_traj.shape[0],-1,*adj_traj.shape[-2:])
-        traj_enc = self.adj_net(adj_traj)
-        traj_enc = traj_enc.reshape(traj_enc.shape[0],max_agent,max_agent,lane_enc.shape[-1])
+        # adj_traj = adj_traj.reshape(adj_traj.shape[0],-1,*adj_traj.shape[-2:])
+        # traj_enc = self.adj_net(adj_traj)
+        # traj_enc = traj_enc.reshape(traj_enc.shape[0],max_agent,max_agent,lane_enc.shape[-1])
+        #
+        # social_emb = self.social_emb(lane_out)
+        # social_emb = torch.max(social_emb, -2)[0].unsqueeze(1).repeat(1,max_agent,1,1)
+        # traj_enc = torch.cat([traj_enc,social_emb],-1)
+        # traj_enc = self.traj_mlp(traj_enc)
+        #
+        # traj_enc = traj_enc.reshape(-1,*traj_enc.shape[-2:])
+        # social_valid_len = data['valid_len'][:, 1] + 1
+        # social_mask = torch.zeros((lane_out.shape[0], 1, max_agent)).to(lane_out.device)
+        # for i in range(lane_out.shape[0]):
+        #     social_mask[i, 0, :social_valid_len[i]] = 1
+        # social_mask = social_mask.repeat(1,social_mask.shape[-1],1).unsqueeze(-2).reshape(-1,*social_mask.shape[-2:])
+        # traj_mem = self.traj_enc(traj_enc, social_mask)
+        # traj_mem = traj_mem.reshape(*lane_out.shape[:2],*traj_mem.shape[-2:])
+        # social_mask = social_mask.reshape(*lane_out.shape[:2],*social_mask.shape[-2:])
+        # out = self.traj_dec(lane_out, traj_mem, social_mask, None)
 
-        social_emb = self.social_emb(lane_out)
-        social_emb = torch.max(social_emb, -2)[0].unsqueeze(1).repeat(1,max_agent,1,1)
-        traj_enc = torch.cat([traj_enc,social_emb],-1)
-        traj_enc = self.traj_mlp(traj_enc)
-
-        traj_enc = traj_enc.reshape(-1,*traj_enc.shape[-2:])
-        social_valid_len = data['valid_len'][:, 1] + 1
-        social_mask = torch.zeros((lane_out.shape[0], 1, max_agent)).to(lane_out.device)
-        for i in range(lane_out.shape[0]):
-            social_mask[i, 0, :social_valid_len[i]] = 1
-        social_mask = social_mask.repeat(1,social_mask.shape[-1],1).unsqueeze(-2).reshape(-1,*social_mask.shape[-2:])
-        traj_mem = self.traj_enc(traj_enc, social_mask)
-        traj_mem = traj_mem.reshape(*lane_out.shape[:2],*traj_mem.shape[-2:])
-        social_mask = social_mask.reshape(*lane_out.shape[:2],*social_mask.shape[-2:])
-        out = self.traj_dec(lane_out, traj_mem, social_mask, None)
-
-
+        out = lane_out
         # gather
         gather_list, new_data = self._gather_new_data(data, max_agent)
 
