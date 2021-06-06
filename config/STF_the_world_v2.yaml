@@ -19,7 +19,7 @@ dataset_cfg:
 model_cfg:
   #vector net related
   lane_dims: 11
-  traj_dims: 7
+  traj_dims: 4
   out_dims: 160
   subgraph_width_unit: 32
   num_subgraph_layers: 2

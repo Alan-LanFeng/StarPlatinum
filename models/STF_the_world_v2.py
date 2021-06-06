@@ -4,8 +4,8 @@ from models.utils import (
     Encoder, EncoderLayer,
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
-    LinearEmbedding, LaneNet,
-    ChoiceHead
+    LinearEmbedding, LaneNet,PositionalEncoding,
+    ChoiceHead,EncoderDecoder,TypeEmb
 )
 from models.STF import STF
 import copy
@@ -45,7 +45,8 @@ class STF_the_world_v2(STF):
         self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
         self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
         self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
-
+        self.type_lut = nn.Linear(3, 128)
+        position = PositionalEncoding(d_model, dropout)
         self.cent_emb = nn.Sequential(
             nn.Linear(2, pos_dim, bias=True),
             nn.LayerNorm(pos_dim),
@@ -88,6 +89,14 @@ class STF_the_world_v2(STF):
             nn.Linear(d_model, d_model, bias=True))
         self.hist_emb = LinearEmbedding(traj_dims, d_model)
 
+        self.hist_type = TypeEmb(3,128)
+        self.hist_tf = EncoderDecoder(
+            Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+            Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
+            nn.Sequential(c(position),self.hist_type)
+        )
+        self.traj_type = TypeEmb(10,128)
+
     def forward(self, data: dict):
         valid_len = data['valid_len']
         max_agent = max(torch.max(valid_len[:, 0]), self.max_pred_num)
@@ -101,6 +110,7 @@ class STF_the_world_v2(STF):
         obj_type[obj_type<0]=0
         one = nn.functional.one_hot(obj_type,3).to(torch.float32)
         one_hot_hist = one.unsqueeze(-2).repeat(1,1,10,1)
+        self.hist_type.add_type(one_hot_hist)
         # =======================================trajectory module===================================
         hist_mask = data['hist_mask'][:, :max_agent]
         hist = data['hist'][:, :max_agent]
@@ -123,9 +133,10 @@ class STF_the_world_v2(STF):
         yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
         # center_emb = self.cent_emb(center)
         # yaw_emb = self.yaw_emb(yaw_1)
-        hist = torch.cat([hist, one_hot_hist], -1)
+        #hist = torch.cat([hist, one_hot_hist], -1)
         # =============================================================================
         adj_traj = hist.detach().clone()
+        adj_traj = torch.cat([adj_traj,one_hot_hist],-1)
         adj_traj = adj_traj.unsqueeze(1).repeat(1,max_agent,1,1,1)
 
         adj_traj[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1,1).repeat(1,1,*adj_traj.shape[2:4],2)
@@ -134,7 +145,7 @@ class STF_the_world_v2(STF):
         adj_traj[...,:2] = self._rotate(adj_traj[...,:2],yaw)
         adj_traj[..., 2:4] = self._rotate(adj_traj[..., 2:4], yaw)
         adj_traj = adj_traj.reshape(*adj_traj.shape[:2], -1,10, adj_traj.shape[-1])
-        mask = hist_mask.unsqueeze(1).repeat(1,hist_mask.shape[-2],1,1).unsqueeze(-1).repeat(1,1,1,1,7)
+        mask = hist_mask.unsqueeze(1).repeat(1,hist_mask.shape[-2],1,1).unsqueeze(-1).repeat(1,1,1,1,adj_traj.shape[-1])
         adj_traj = adj_traj*mask
 
         # ===============================================================
@@ -158,7 +169,7 @@ class STF_the_world_v2(STF):
         adj_index = adj_index.reshape(*adj_index.shape,1,1).repeat(1, 1, 1,*lane.shape[-2:])[:, :, :max_adj_lane]
         adj_mask = adj_mask.unsqueeze(2)[:, :, :, :max_adj_lane]
         lane = torch.gather(lane,2,adj_index)
-
+        lane_type = lane[...,0,4:]
         lane[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1,1).repeat(1,1,*lane.shape[2:4],2)
         lane[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2], 1, 1, 1).repeat(1, 1, *lane.shape[2:4], 2)
         lane = lane.reshape(*lane.shape[:2],-1,lane.shape[-1])
@@ -191,7 +202,15 @@ class STF_the_world_v2(STF):
         traj_enc = self.tra_emb(traj_enc)
         lane_enc = torch.cat([lane_enc,traj_enc],-2)
 
-        lane_mem = self.lane_enc(lane_enc, lane_mask)
+        one = one.unsqueeze(1).repeat(1,one.shape[-2],1,1)
+        a = torch.zeros([*lane_type.shape[:3],3]).to(lane_type.device)
+        lane_type = torch.cat([lane_type,a],-1)
+        a = torch.zeros([*one.shape[:3],7]).to(lane_type.device)
+        one = torch.cat([a,one],-1)
+        all_type = torch.cat([lane_type,one],-2)
+        all_type = all_type.reshape(-1,*all_type.shape[-2:])
+        self.traj_type.add_type(all_type)
+        lane_mem = self.lane_enc(lane_enc, lane_mask,self.traj_type)
         lane_mem = lane_mem.reshape(*hist_out.shape[:2],*lane_mem.shape[-2:])
         social_mask = social_mask.reshape(hist_out.shape[0],-1,*social_mask.shape[-2:])
         adj_mask = torch.cat([adj_mask,social_mask],-1)
@@ -238,47 +257,5 @@ class STF_the_world_v2(STF):
         gather_out = gather_list.view(*gather_list.shape, 1, 1).repeat(1, 1, *out.shape[-2:])
         out = torch.gather(out, 1, gather_out)
         outputs_coord, outputs_class = self.prediction_head(out, new_data['obj_type'])
-
-        # ===================gather whole traj for discriminator====
-        gather_center = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 2)
-        disc['center'] = torch.gather(center,1,gather_center)
-        disc['yaw'] = torch.gather(yaw_1,1,gather_center)
-
-        pred_cum = outputs_coord.cumsum(-2)
-        start = torch.zeros([*pred_cum.shape[:3],1,2]).to(pred_cum.device)
-        pred_cum = torch.cat([start,pred_cum],-2)
-        vector = torch.cat([pred_cum[:,:,:,:-1],pred_cum[:,:,:,1:]],-1)
-
-        gt = data['gt'][:,:max_agent]
-        gather_gt = gather_list.view(*gather_list.shape, 1,1).repeat(1, 1, *gt.shape[-2:])
-        gt = torch.gather(gt,1,gather_gt).cumsum(-2)
-        start = torch.zeros([*gt.shape[:2],1,2]).to(pred_cum.device)
-        gt = torch.cat([start,gt],-2)
-        vector_gt = torch.cat([gt[:, :, :-1], gt[:, :, 1:]], -1)
-
-
-        gather_one_hot = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 3)
-        one_hot = torch.gather(one,1,gather_one_hot)
-        one_hot_future = one_hot.unsqueeze(-2).unsqueeze(-2).repeat(1, 1,vector.shape[-3], 80, 1)
-        one_hot_gt = one_hot.unsqueeze(-2).repeat(1, 1, 80, 1)
-        vector = torch.cat([vector,one_hot_future],-1)
-        vector_gt = torch.cat([vector_gt,one_hot_gt],-1)
-
-        gather_hist =  gather_list.view(*gather_list.shape, 1,1).repeat(1, 1, *hist.shape[-2:])
-        hist = torch.gather(hist,1,gather_hist)
-        pred_hist = hist.unsqueeze(2).repeat(1,1,pred_cum.shape[2],1,1)
-        gather_hist_mask = gather_list.view(*gather_list.shape, 1,1).repeat(1, 1, *hist_mask.shape[-2:])
-        hist_mask = torch.gather(hist_mask,1,gather_hist_mask)
-        whole_traj = torch.cat([pred_hist,vector],-2)
-        gt_traj = torch.cat(([hist,vector_gt]),-2)
-        gt_mask = data['gt_mask'][:,:max_agent]
-        gather_gt_mask = gather_list.view(*gather_list.shape, 1).repeat(1, 1, 80)
-        gt_mask = torch.gather(gt_mask,1,gather_gt_mask)
-        disc['obj_type'] = new_data['obj_type']-1
-        disc['traj'] = whole_traj
-        disc['hist_mask'] = hist_mask
-        disc['gt_traj'] = gt_traj.unsqueeze(2)
-        disc['gt_mask'] = gt_mask.unsqueeze(2)
-        disc['pred_mask'] = torch.ones([*hist_mask.shape[:3], 80]).to(hist_mask.device).to(torch.bool)
 
         return outputs_coord, outputs_class, new_data,disc

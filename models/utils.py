@@ -267,6 +267,22 @@ class PositionalEncoding(nn.Module):
         x = x + Variable(self.pe[:x.shape[-2]], requires_grad=False)
         return self.dropout(x)
 
+class TypeEmb(nn.Module):
+    """
+    Implement the PE function.
+    """
+
+    def __init__(self,d_type,d_model):
+        super(TypeEmb, self).__init__()
+        self.lut = nn.Linear(d_type,d_model,bias=False)
+    def add_type(self,type):
+        self.type_emb = self.lut(type)
+        print()
+    def forward(self, x):
+        x = x + self.type_emb
+        return x
+
+
 class PosYawEmbed(nn.Module):
     """
     Implement the PE function.
