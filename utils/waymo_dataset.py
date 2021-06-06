@@ -11,7 +11,7 @@ MAX_AGENT_NUM = 128
 FUTURE_LEN = 80
 TIMEFRAME = 91
 CURRENT = 10
-LANE_SAMPLE = 10
+LANE_SAMPLE = 11
 
 # adjacent lane params
 # any lane in this range will become a specific agents' adjacent lane
@@ -65,12 +65,12 @@ class WaymoDataset(Dataset):
             file_path = os.path.join(self.path, f'{index}.pkl')
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)
-            data =  self.process(data)
+            data = self.process(data)
 
-            if not os.path.exists(cache_file):
-                os.mknod(cache_file)
-            with open(cache_file, 'wb') as f:
-                pickle.dump(data, f)
+            # if not os.path.exists(cache_file):
+            #     os.mknod(cache_file)
+            # with open(cache_file, 'wb') as f:
+            #     pickle.dump(data, f)
             return data
 
         # when training in 1988
@@ -119,7 +119,7 @@ class WaymoDataset(Dataset):
     def lane_process(self, lane,traf):
 
         # first divide [20000,9] point data into [660,10,4] lane data, each lane have 10 points
-        lane_vector = np.zeros([660,9,11],dtype=np.float32)
+        lane_vector = np.zeros([660,LANE_SAMPLE-1,11],dtype=np.float32)
         rid = lane[:, 0]
         id_set = np.unique(rid)
         cnt = 0
@@ -175,7 +175,7 @@ class WaymoDataset(Dataset):
                     lane_vector[cnt,:point_num-1,:2] = feat[:-1,:2]
                     lane_vector[cnt, :point_num-1, 2:4] = feat[1:, :2]
                     lane_vector[cnt, :point_num-1, 4:] = all_one_hot
-                    if point_num<10 and ty in [18,19]:
+                    if point_num<LANE_SAMPLE and ty in [18,19]:
                         lane_vector[cnt,point_num-1,:2] = lane_vector[cnt,point_num-2,2:4]
                         lane_vector[cnt, point_num - 1, 2:4] = lane_vector[cnt, 0, :2]
                         lane_vector[cnt, point_num - 1, 4:] = all_one_hot

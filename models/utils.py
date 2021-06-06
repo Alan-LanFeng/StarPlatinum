@@ -277,7 +277,6 @@ class TypeEmb(nn.Module):
         self.lut = nn.Linear(d_type,d_model,bias=False)
     def add_type(self,type):
         self.type_emb = self.lut(type)
-        print()
     def forward(self, x):
         x = x + self.type_emb
         return x

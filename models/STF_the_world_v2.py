@@ -37,7 +37,7 @@ class STF_the_world_v2(STF):
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
         # num of proposal
         self.lanenet = LaneNet(
-            cfg['lane_dims'],
+            14,
             cfg['subgraph_width_unit'],
             cfg['num_subgraph_layers'])
         self.lane_emb = LinearEmbedding(cfg['subgraph_width_unit'] * 2, d_model)
@@ -75,12 +75,9 @@ class STF_the_world_v2(STF):
             nn.ReLU(),
             nn.Linear(d_model, d_model, bias=True))
         self.social_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-        self.adj_net = LaneNet(
-            7,
-            cfg['subgraph_width_unit'],
-            cfg['num_subgraph_layers'])
+
         self.traj_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-        self.traj_emb = LinearEmbedding(d_model, d_model)
+
         self.traj_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
         self.traj_mlp = nn.Sequential(
             nn.Linear(192, d_model, bias=True),
@@ -130,13 +127,10 @@ class STF_the_world_v2(STF):
         # a = dist.numpy()
         # ========================================================
 
-        yaw_1 = torch.cat([torch.cos(yaw).unsqueeze(-1),torch.sin(yaw).unsqueeze(-1)],-1)
-        # center_emb = self.cent_emb(center)
-        # yaw_emb = self.yaw_emb(yaw_1)
         #hist = torch.cat([hist, one_hot_hist], -1)
         # =============================================================================
         adj_traj = hist.detach().clone()
-        adj_traj = torch.cat([adj_traj,one_hot_hist],-1)
+        #adj_traj = torch.cat([adj_traj,one_hot_hist],-1)
         adj_traj = adj_traj.unsqueeze(1).repeat(1,max_agent,1,1,1)
 
         adj_traj[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1,1).repeat(1,1,*adj_traj.shape[2:4],2)
@@ -145,6 +139,9 @@ class STF_the_world_v2(STF):
         adj_traj[...,:2] = self._rotate(adj_traj[...,:2],yaw)
         adj_traj[..., 2:4] = self._rotate(adj_traj[..., 2:4], yaw)
         adj_traj = adj_traj.reshape(*adj_traj.shape[:2], -1,10, adj_traj.shape[-1])
+        one = one.unsqueeze(1).repeat(1,one.shape[-2],1,1)
+        one = torch.nn.functional.pad(one,[7,0])
+        adj_traj = torch.cat([adj_traj,one.unsqueeze(-2).repeat(1,1,1,10,1)],-1)
         mask = hist_mask.unsqueeze(1).repeat(1,hist_mask.shape[-2],1,1).unsqueeze(-1).repeat(1,1,1,1,adj_traj.shape[-1])
         adj_traj = adj_traj*mask
 
@@ -169,13 +166,17 @@ class STF_the_world_v2(STF):
         adj_index = adj_index.reshape(*adj_index.shape,1,1).repeat(1, 1, 1,*lane.shape[-2:])[:, :, :max_adj_lane]
         adj_mask = adj_mask.unsqueeze(2)[:, :, :, :max_adj_lane]
         lane = torch.gather(lane,2,adj_index)
-        lane_type = lane[...,0,4:]
+
+        lane_type = lane[...,4:]
+        lane_type = nn.functional.pad(lane_type,[0,3])
+        lane = torch.cat([lane[...,:4],lane_type],-1)
         lane[...,[0,2]]-=center[...,0].reshape(*center.shape[:2],1,1,1).repeat(1,1,*lane.shape[2:4],2)
         lane[..., [1, 3]] -= center[..., 1].reshape(*center.shape[:2], 1, 1, 1).repeat(1, 1, *lane.shape[2:4], 2)
         lane = lane.reshape(*lane.shape[:2],-1,lane.shape[-1])
         lane[...,:2] = self._rotate(lane[...,:2],yaw)
         lane[..., 2:4] = self._rotate(lane[..., 2:4], yaw)
-        lane = lane.reshape(*lane.shape[:2], -1,9, lane.shape[-1])
+        lane = lane.reshape(*lane.shape[:2], max_adj_lane,-1, lane.shape[-1])
+        lane = torch.cat([lane,adj_traj],-3)
         # =====================disc==========================================
         output_lane = lane
         # =====================disc==========================================
@@ -184,33 +185,21 @@ class STF_the_world_v2(STF):
         for i in range(adj_traj.shape[0]):
             social_mask[i, 0, :social_valid_len[i]] = 1
         social_mask = social_mask.repeat(1, social_mask.shape[-1], 1).unsqueeze(-2).reshape(-1, *social_mask.shape[-2:]).to(bool)
-        adj_traj = adj_traj.reshape(adj_traj.shape[0],-1,*adj_traj.shape[-2:])
-        traj_enc = self.adj_net(adj_traj)
-        traj_enc = traj_enc.reshape(traj_enc.shape[0], max_agent, -1, traj_enc.shape[-1])
-        traj_enc = traj_enc.reshape(-1, *traj_enc.shape[-2:])
-
 
         lane = lane.reshape(lane.shape[0],-1,*lane.shape[-2:])
+
         lane_enc = self.lanenet(lane)
-        lane_enc = lane_enc.reshape(lane_enc.shape[0],max_agent,max_adj_lane,lane_enc.shape[-1])
+        lane_enc = lane_enc.reshape(lane_enc.shape[0],max_agent,max_adj_lane+max_agent,lane_enc.shape[-1])
         lane_enc = lane_enc.reshape(-1,*lane_enc.shape[-2:])
         lane_mask = adj_mask.reshape(-1,*adj_mask.shape[-2:])
 
         lane_mask = torch.cat([lane_mask,social_mask],-1)
 
-        lane_enc = self.lane_emb(lane_enc)
-        traj_enc = self.tra_emb(traj_enc)
-        lane_enc = torch.cat([lane_enc,traj_enc],-2)
-
-        one = one.unsqueeze(1).repeat(1,one.shape[-2],1,1)
-        a = torch.zeros([*lane_type.shape[:3],3]).to(lane_type.device)
-        lane_type = torch.cat([lane_type,a],-1)
-        a = torch.zeros([*one.shape[:3],7]).to(lane_type.device)
-        one = torch.cat([a,one],-1)
+        lane_type = lane_type[:,:,:,0,:]
         all_type = torch.cat([lane_type,one],-2)
         all_type = all_type.reshape(-1,*all_type.shape[-2:])
         self.traj_type.add_type(all_type)
-        lane_mem = self.lane_enc(lane_enc, lane_mask,self.traj_type)
+        lane_mem = self.lane_enc(self.lane_emb(lane_enc), lane_mask,self.traj_type)
         lane_mem = lane_mem.reshape(*hist_out.shape[:2],*lane_mem.shape[-2:])
         social_mask = social_mask.reshape(hist_out.shape[0],-1,*social_mask.shape[-2:])
         adj_mask = torch.cat([adj_mask,social_mask],-1)
