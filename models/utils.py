@@ -11,11 +11,11 @@ class EncoderDecoder(nn.Module):
     other models.
     """
 
-    def __init__(self, encoder, decoder, pos_embed):
+    def __init__(self, encoder, decoder, src_embed):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
-        self.pos_embed = pos_embed
+        self.src_embed = src_embed
 
     def forward(self, src, tgt, src_mask, tgt_mask, query_pos=None):
         """
@@ -25,7 +25,7 @@ class EncoderDecoder(nn.Module):
         return self.decode(output, src_mask, tgt, tgt_mask, query_pos)
 
     def encode(self, src, src_mask):
-        return self.encoder(src, src_mask,self.pos_embed)
+        return self.encoder(self.src_embed(src), src_mask)
 
     def decode(self, memory, src_mask, tgt, tgt_mask, query_pos=None):
         return self.decoder(tgt, memory, src_mask, tgt_mask, query_pos)
@@ -41,15 +41,13 @@ class Encoder(nn.Module):
         self.layers = clones(layer, n)
         self.norm = nn.LayerNorm(layer.size)
 
-    def forward(self, x, x_mask,pe=None):
+    def forward(self, x, x_mask):
         """
         Pass the input (and mask) through each layer in turn.
         """
         for layer in self.layers:
-            x = pe(x) if pe else x
             x = layer(x, x_mask)
         return self.norm(x)
-
 
 class EncoderLayer(nn.Module):
     """
@@ -277,7 +275,6 @@ class TypeEmb(nn.Module):
         self.lut = nn.Linear(d_type,d_model,bias=False)
     def add_type(self,type):
         self.type_emb = self.lut(type)
-        print()
     def forward(self, x):
         x = x + self.type_emb
         return x

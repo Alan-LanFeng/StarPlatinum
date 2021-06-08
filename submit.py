@@ -31,7 +31,7 @@ class Submit:
 
         # meta info
         self.submission.submission_type = 1
-        self.submission.account_name = 'zqh10241024@gmail.com'
+        self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
 
         self.cnt = 0
@@ -117,7 +117,7 @@ class Submit:
         self.submission = motion_submission_pb2.MotionChallengeSubmission()
 
         self.submission.submission_type = 1
-        self.submission.account_name = 'zqh10241024@gmail.com'
+        self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
         self.last_cnt = self.cnt
 

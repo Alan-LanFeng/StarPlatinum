@@ -28,15 +28,14 @@ class STF(nn.Module):
         attn = MultiHeadAttention(h, d_model, dropout)
         ff = PointerwiseFeedforward(d_model, d_model * 2, dropout)
         position = PositionalEncoding(d_model, dropout)
-
+        traj_dims = cfg['traj_dims']
         self.query_embed = nn.Embedding(prop_num, d_model)
         self.query_embed.weight.requires_grad == False
         nn.init.orthogonal_(self.query_embed.weight)
-
         self.hist_tf = EncoderDecoder(
             Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
             Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
-            c(position)
+            nn.Sequential(LinearEmbedding(traj_dims, d_model), c(position))
         )
         self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
 
