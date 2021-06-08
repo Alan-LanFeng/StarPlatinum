@@ -49,7 +49,7 @@ class STF_the_world_v3(STF):
         self.lane_emb = LinearEmbedding(cfg['subgraph_width_unit'] * 2, d_model)
         self.tra_emb = LinearEmbedding(cfg['subgraph_width_unit'] * 2, d_model)
 
-        self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), 2*N)
+        self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
         self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
         self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
 
