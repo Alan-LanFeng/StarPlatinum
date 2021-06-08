@@ -456,6 +456,54 @@ class GeneratorWithParallelHeads626(nn.Module):
         # conf = cls_h
         return pred, conf
 
+class deeper626(nn.Module):
+    def __init__(self, d_model, out_size, dropout, reg_h_dim=128, dis_h_dim = 128, cls_h_dim = 128):
+        super(deeper626, self).__init__()
+        self.reg_mlp = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim*2, bias=True),
+            nn.LayerNorm(reg_h_dim*2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim*2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, out_size, bias=True))
+
+
+        self.cls_FFN = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim*2, bias=True),
+            nn.LayerNorm(reg_h_dim*2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim*2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU())
+
+        self.classification_layer = nn.Sequential(
+                                        nn.Linear(d_model, cls_h_dim),
+                                        nn.Linear(cls_h_dim, 1, bias=True))
+        self.cls_opt = nn.LogSoftmax(dim=-1)
+
+    def forward(self, x):
+        pred = self.reg_mlp(x)
+        pred = pred.view(*pred.shape[0:3],-1,2) #.cumsum(dim=-2)
+        # return pred
+        cls_h = self.cls_FFN(x)
+        cls_h = self.classification_layer(cls_h).squeeze(dim=-1)
+        conf = self.cls_opt(cls_h)
+        # conf = cls_h
+        return pred, conf
+
 
 class GeneratorWithInteraction(nn.Module):
     def __init__(self, d_model, out_size, dropout, reg_h_dim=128, dis_h_dim=128, cls_h_dim=128):
@@ -633,6 +681,29 @@ class ChoiceHead(nn.Module):
         super(ChoiceHead, self).__init__()
         self.model_list = nn.ModuleList(
             [GeneratorWithParallelHeads626(d_model, out_size, dropout) for i in range(choices)])
+
+    def forward(self, x, idx):
+        pred_coord, pred_class = [], []
+        for m in self.model_list:
+            res1, res2 = m(x)
+            pred_coord.append(res1.unsqueeze(-1))
+            pred_class.append(res2.unsqueeze(-1))
+        pred_coord = torch.cat(pred_coord, dim=-1)
+        pred_class = torch.cat(pred_class, dim=-1)
+        idx = idx - (idx > 0).int()
+
+        k = pred_coord.shape[2]
+        pred_coord = torch.gather(pred_coord, dim=-1, index=idx.view(*idx.shape, 1, 1, 1, 1).repeat(1, 1, k, 80, 2, 1))
+        pred_class = torch.gather(pred_class, dim=-1, index=idx.view(*idx.shape, 1, 1).repeat(1, 1, k, 1))
+        pred_coord = pred_coord.squeeze(-1)
+        pred_class = pred_class.squeeze(-1)
+        return pred_coord, pred_class
+
+class deeperChoiceHead(nn.Module):
+    def __init__(self, d_model, out_size, dropout, choices=3):
+        super(deeperChoiceHead, self).__init__()
+        self.model_list = nn.ModuleList(
+            [deeper626(d_model, out_size, dropout) for i in range(choices)])
 
     def forward(self, x, idx):
         pred_coord, pred_class = [], []

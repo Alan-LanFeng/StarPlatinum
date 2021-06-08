@@ -4,8 +4,7 @@ from models.utils import (
     Encoder, EncoderLayer,
     Decoder, DecoderLayer,
     MultiHeadAttention, PointerwiseFeedforward,
-    LinearEmbedding, LaneNet,PositionalEncoding,
-    ChoiceHead,EncoderDecoder,TypeEmb
+    LinearEmbedding, LaneNet
 )
 from models.STF import STF
 import copy
@@ -50,7 +49,7 @@ class STF_the_world_v2(STF):
 
         self.lane_enc = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), 2*N)
         self.lane_dec = Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N)
-        self.prediction_head = ChoiceHead(d_model, dec_out_size, dropout)
+        self.prediction_head = deeperChoiceHead(d_model, dec_out_size, dropout)
 
 
     def forward(self, data: dict):
