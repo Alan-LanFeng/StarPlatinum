@@ -508,47 +508,65 @@ class deeper626(nn.Module):
 class GeneratorWithInteraction(nn.Module):
     def __init__(self, d_model, out_size, dropout, reg_h_dim=128, dis_h_dim=128, cls_h_dim=128):
         super(GeneratorWithInteraction, self).__init__()
-        self.reg_cls = nn.Sequential(
-            nn.Linear(d_model * 2, reg_h_dim * 2, bias=True),
+
+        self.reg_mlp1 = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim*2, bias=True),
+            nn.LayerNorm(reg_h_dim*2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim*2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, reg_h_dim * 2, bias=True),
             nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, out_size, bias=True))
+
+        self.reg_mlp2 = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim*2, bias=True),
+            nn.LayerNorm(reg_h_dim*2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim*2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, out_size, bias=True))
+
+        self.reg_cls = nn.Sequential(
+            nn.Linear(d_model, reg_h_dim*2, bias=True),
+            nn.LayerNorm(reg_h_dim*2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim*2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim, reg_h_dim * 2, bias=True),
+            nn.LayerNorm(reg_h_dim * 2),
+            nn.ReLU(),
+            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
+            nn.LayerNorm(reg_h_dim),
             nn.ReLU(),
         )
-        self.reg_mlp1 = nn.Sequential(
-            nn.Linear(d_model, reg_h_dim * 2, bias=True),
-            nn.LayerNorm(reg_h_dim * 2),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
-            nn.Linear(reg_h_dim, out_size, bias=True))
-        self.reg_mlp2= nn.Sequential(
-            nn.Linear(d_model, reg_h_dim * 2, bias=True),
-            nn.LayerNorm(reg_h_dim * 2),
-            nn.ReLU(),
-            nn.Linear(reg_h_dim * 2, reg_h_dim, bias=True),
-            nn.Linear(reg_h_dim, out_size, bias=True))
-        self.dis_emb = nn.Linear(2, dis_h_dim, bias=True)
-        self.cls_FFN = PointerwiseFeedforward(d_model, 2 * d_model, dropout=dropout)
-        # self.sublayer = nn.Sequential(
-        #                 nn.Linear(d_model, cls_h_dim*2, bias=True),
-        #                 nn.LayerNorm(cls_h_dim*2),
-        #                 nn.ReLU(),
-        #                 nn.Linear(cls_h_dim*2, cls_h_dim),)
+
         self.classification_layer = nn.Sequential(
-            nn.Linear(d_model, cls_h_dim),
+            nn.Linear(reg_h_dim, cls_h_dim),
             nn.Linear(cls_h_dim, 1, bias=True))
-        # self.cls_emb_layer = SublayerConnection(dis_h_dim+d_model, dropout)
-        # self.cls_opt = nn.Sigmoid()
         self.cls_opt = nn.LogSoftmax(dim=-1)
 
     def forward(self, x):
-        pred1 = self.reg_mlp1(x[:, 0, :, :]).unsqueeze(1)
-        pred2 = self.reg_mlp2(x[:, 1, :, :]).unsqueeze(1)
-        pred = torch.cat([pred1, pred2], 1)
-        pred = pred.view(*pred.shape[0:3], -1, 2)  # .cumsum(dim=-2)
-        # return pred
         x = torch.transpose(x, 1, 2)
         x = x.reshape(*x.shape[:2], -1)
-        x = self.reg_cls(x)
-        cls_h = self.cls_FFN(x)
+        pred1 = self.reg_mlp1(x).unsqueeze(1)
+        pred2 = self.reg_mlp2(x).unsqueeze(1)
+        pred = torch.cat([pred1,pred2],1)
+        pred = pred.view(*pred.shape[0:3], -1, 2)
+        cls_h = self.reg_cls(x)
         cls_h = self.classification_layer(cls_h).squeeze(dim=-1)
         conf = self.cls_opt(cls_h)
         # conf = cls_h

@@ -81,6 +81,21 @@ class WaymoDataset(Dataset):
         # sample_bytes = ceph.get(cache_file)
         # return pickle.loads(sample_bytes)
 
+        # =======================
+        # cache_root = 's3://prediction/data/wod'
+        # cache_file = os.path.join(cache_root, self.cache_name, self.period, f'{index}.pkl')
+        # sample_bytes = self.ceph.get(cache_file)
+        # if not sample_bytes:
+        #     trans_file = os.path.join(cache_root, 'trans', self.period, f'{index}.pkl')
+        #     sample_bytes = self.ceph.get(trans_file)
+        #     data = pickle.loads(sample_bytes)
+        #     data = self.process(data)
+        #     self.ceph.put(cache_file, pickle.dumps(data))
+        #     return data
+        # else:
+        #     return pickle.loads(sample_bytes)
+        # =======================
+
         # when training in validation and 1988
         # if index >= 487067:
         #     period = 'validation'

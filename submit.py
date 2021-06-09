@@ -33,8 +33,8 @@ class Submit:
         self.submission.submission_type = 1
         self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
-        self.authors = ['Lan Feng','Qihang Zhang']
-        self.affiliation = 'Sensetime & CUHK MMlab'
+        self.submission.authors = ['Lan Feng','Qihang Zhang']
+        self.submission.affiliation = 'Sensetime & CUHK MMlab'
 
         self.cnt = 0
         self.last_cnt = 0
@@ -121,6 +121,8 @@ class Submit:
         self.submission.submission_type = 1
         self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
+        self.submission.authors = ['Lan Feng','Qihang Zhang']
+        self.submission.affiliation = 'Sensetime & CUHK MMlab'
         self.last_cnt = self.cnt
 
 
