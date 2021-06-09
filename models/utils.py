@@ -490,7 +490,7 @@ class deeper626(nn.Module):
             nn.ReLU())
 
         self.classification_layer = nn.Sequential(
-                                        nn.Linear(d_model, cls_h_dim),
+                                        nn.Linear(reg_h_dim, cls_h_dim),
                                         nn.Linear(cls_h_dim, 1, bias=True))
         self.cls_opt = nn.LogSoftmax(dim=-1)
 

@@ -33,6 +33,8 @@ class Submit:
         self.submission.submission_type = 1
         self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
+        self.authors = ['Lan Feng','Qihang Zhang']
+        self.affiliation = 'Sensetime & CUHK MMlab'
 
         self.cnt = 0
         self.last_cnt = 0
@@ -141,7 +143,7 @@ if __name__ == "__main__":
 
     # print(cfg)
     dataset_cfg = cfg['dataset_cfg']
-    #dataset_cfg['dataset_dir'] = '/home/SENSETIME/fenglan/trans'
+    dataset_cfg['dataset_dir'] = '/home/SENSETIME/fenglan/trans'
     train_dataset = WaymoDataset(dataset_cfg, 'validation')
 
     print('len:', len(train_dataset))

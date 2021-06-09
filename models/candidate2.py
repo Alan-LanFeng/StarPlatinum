@@ -20,9 +20,9 @@ def bool2index(mask):
     return index, mask
 
 
-class STF_the_world_v2(STF):
+class candidate2(STF):
     def __init__(self, cfg):
-        super(STF_the_world_v2, self).__init__(cfg)
+        super(candidate2, self).__init__(cfg)
 
         d_model = cfg['d_model']
         h = cfg['attention_head']
