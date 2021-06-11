@@ -1,6 +1,3 @@
-from waymo_open_dataset import dataset_pb2
-from waymo_open_dataset import label_pb2
-from waymo_open_dataset.protos import metrics_pb2
 from waymo_open_dataset.protos import motion_submission_pb2
 import os
 
@@ -12,12 +9,11 @@ import numpy as np
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from lib.dataset.waymo_dataset import WaymoDataset
+from utils.waymo_dataset import WaymoDataset
 from l5kit.configs import load_config_data
 
-from lib.models.STF.vectornet import VecNet
-from lib.utils.utilities import (load_checkpoint, save_checkpoint, load_model_class,
-                                 vis_argoverse, set_model_grad, fix_parameter_except)
+from utils.utilities import (load_checkpoint,load_model_class)
+
 
 
 def rotate(x, theta):
@@ -33,9 +29,9 @@ class Submit:
 
         # meta info
         self.submission.submission_type = self.submission.SubmissionType.INTERACTION_PREDICTION
-        self.submission.account_name = 'zqh10241024@gmail.com'
+        self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
-
+        self.submission.submission_type = 2
         self.cnt = 0
         self.last_cnt = 0
 
@@ -110,138 +106,52 @@ class Submit:
         self.submission = motion_submission_pb2.MotionChallengeSubmission()
 
         self.submission.submission_type = 2
-        self.submission.account_name = 'zqh10241024@gmail.com'
+        self.submission.account_name = 'lf2681@gmail.com'
         self.submission.unique_method_name = 'mmTrans'
         self.last_cnt = self.cnt
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--resume', action="store_true")
-    parser.add_argument('--training-tricks', action="store_true")
-    parser.add_argument('--train-in-validation', action="store_true")
     parser.add_argument('--local', action="store_true")
-    parser.add_argument('--data-augment', action="store_true")
-    parser.add_argument('--cfg-name', type=str, default='argoverse')
-    parser.add_argument('--debug-mode', action="store_true")
-    parser.add_argument('--model-name', type=str, default='defualt_model')
-    parser.add_argument('--exp-name', type=str, default='default')
-    parser.add_argument('--waymo-dir', type=str, default='/mnt/lustre/share/zhangqihang/WOD/trans')
-
+    parser.add_argument('--cfg', type=str, default='0')
+    parser.add_argument('--model-name', type=str, default='default_model')
     args = parser.parse_args()
-    argoverse = True
-    if argoverse:
-        TRAIN_DIR = os.path.join('./intermediate_data', 'train_intermediate')
-        TRIAN_DATA_PKL = 'Train_data_flip_Feature.pkl' if args.data_augment else 'Features.pkl'
-        if args.debug_mode:
-            TRIAN_DATA_PKL = 'Features.pkl'
-            TRAIN_DIR = os.path.join('./intermediate_data', 'sample_intermediate')
-    # =================Get Config================================================================================
-    config_file_name = 'agent_motion_config' if not argoverse else args.cfg_name
-    cfg = load_config_data(f"./config/{config_file_name}.yaml")
-    cfg['local'] = args.local
-    device = 'cuda'
+
+    cfg = load_config_data(f"./config/{args.cfg}.yaml")
+    device = 'cpu' if args.local else 'cuda'
+    if device == 'cpu':
+        gpu_num = 1
+        print('device: CPU')
+    else:
+        gpu_num = torch.cuda.device_count()
+        print("gpu number:{}".format(gpu_num))
+        print("gpu available:", torch.cuda.is_available())
+
     # print(cfg)
-    model_params = cfg['model_params']
-    train_params_cfg = cfg['train_params']
-    gpu_num = torch.cuda.device_count()
-    print("gpu number:{}".format(gpu_num))
-    print(torch.cuda.is_available())
-    # ================================== INIT DATASET ==========================================================
-    start_time = time.time()
-    DATA_CFG_NAME_TRAIN = 'train_data_loader'
-    # DATA_CFG_NAME_TRAIN = 'sample_data_loader'
-    train_cfg = cfg[DATA_CFG_NAME_TRAIN]
-    cfg['train_params']['is_augment'] = args.data_augment
-    train_cfg['local'] = args.local
+    dataset_cfg = cfg['dataset_cfg']
+    dataset_cfg['dataset_dir'] = '/home/SENSETIME/fenglan/trans'
+    train_dataset = WaymoDataset(dataset_cfg,'validation')
 
-    train_dataset = WaymoDataset(root=args.waymo_dir, period='validation_interactive')
     print('len:', len(train_dataset))
-    collate_fn = None
 
-    train_dataloader = DataLoader(train_dataset, shuffle=False, batch_size=8,
-                                  num_workers=train_cfg["num_workers"], collate_fn=collate_fn)
+    train_dataloader = DataLoader(train_dataset, shuffle=dataset_cfg['shuffle'], batch_size=dataset_cfg['batch_size'],
+                                  num_workers=dataset_cfg['num_workers'] * (not args.local))
 
-    # ============================= Some Parameter Initial =====================================================
-    max_epoch = train_params_cfg['num_epoch']
-    future_frames_num = cfg['model_params']['future_num_frames']
-    save_freq = train_params_cfg['save_freq']
-    data_time, model_time = 0, 0
-    dataset_len = len(train_dataloader)
-    best_MR = 1.0
     # =================================== INIT MODEL ============================================================
-    model_save_path = './models/'
-    model_cfg = cfg['model_params']
-    model_cfg['local'] = args.local
-    if not os.path.exists(model_save_path):
-        os.mkdir(model_save_path)
-    module_name = cfg['model_name']
-    STF = load_model_class(module_name)
-    STF = STF(cfg['model_params'])
-    model = VecNet(STF, model_cfg, train_cfg['lane_length'], device)
-
-    if 'backbone_slow' in train_params_cfg and train_params_cfg['backbone_slow']:
-        filter_list = ['cls_partition_mlp', 'cls_mlp']
-        back_bone_params = nn.ParameterList()
-        unfreeze_params = nn.ParameterList()
-        unfreeze_params_name = []
-        back_bone_params_name = []
-
-
-        def filter_params(params, filter_list):
-
-            for name, p in params:
-
-                flag = 0
-                for f in filter_list:
-                    if f in name:
-                        unfreeze_params.append(p)
-                        flag = 1
-                        break
-                if not flag:
-                    back_bone_params.append(p)
-
-
-        filter_params(model.named_parameters(), filter_list)
-        params = [{'params': back_bone_params, 'lr': 0.00001},
-                  {'params': unfreeze_params,
-                   'lr': train_params_cfg['learning_rate']},
-                  ]
-    else:
-        params = [{'params': model.parameters()}, ]
-
-    log_vars = None
-    if cfg['loss_params']['MultiTask']:
-        log_vars = nn.ParameterList()
-        for i in range(4):
-            log_var = torch.tensor([1.0])
-            log_var = nn.Parameter(log_var, requires_grad=True)
-            log_vars.append(log_var)
-        log_vars = log_vars.to(device)
-        params.append({'params': log_vars})
-
-    optimizer = optim.AdamW(params, lr=train_params_cfg['learning_rate'],
-                            betas=(0.9, 0.999), eps=1e-09,
-                            weight_decay=train_params_cfg['weight_decay'],
-                            amsgrad=True)
-    if args.training_tricks:
-        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, train_params_cfg['restart_epoch'], T_mult=2, last_epoch=-1)
-    else:
-        step_size = train_params_cfg['decay_lr_every_epoch'] * \
-                    dataset_len if argoverse else train_params_cfg['decay_lr_every_iter']
-        scheduler = optim.lr_scheduler.StepLR(
-            optimizer, step_size=step_size, gamma=train_params_cfg['decay_lr_factor'])
-
+    model = load_model_class(cfg['model_name'])
+    model_cfg = cfg['model_cfg']
+    model = model(model_cfg)
+    train_cfg = cfg['train_cfg']
+    optimizer = optim.AdamW(model.parameters(), lr=train_cfg['lr'], betas=(0.9, 0.999), eps=1e-09,
+                            weight_decay=train_cfg['weight_decay'], amsgrad=True)
     model = torch.nn.DataParallel(model, list(range(gpu_num))) if args.local else torch.nn.DataParallel(model, list(
         range(gpu_num))).cuda()
-    if args.resume:
-        resume_model_name = os.path.join(
-            model_save_path, '{}.pt'.format(args.model_name))
-        # resume_model_name = os.path.join(model_save_path,'{}_{}.pt'.format(args.model_name, train_params_cfg[
-        # 'resume_epoch']))
-        model = load_checkpoint(resume_model_name, model, optimizer, args.local)
-        print('Successful Resume model {}'.format(resume_model_name))
+    resume_model_name = os.path.join(
+        'saved_models', '{}.pt'.format(args.model_name))
+    model = load_checkpoint(resume_model_name, model, optimizer, args.local)
+    print('Successful Resume model {}'.format(resume_model_name))
+
 
     submit = Submit()
     with torch.no_grad():
@@ -254,9 +164,9 @@ if __name__ == "__main__":
                     data[key] = data[key].float()
                 if isinstance(data[key], torch.Tensor) and not args.local:
                     data[key] = data[key].to('cuda:0')
-
-            # if 'ccb809abe7e3b4b6' not in data['id']:
-            #     continue
-            output, new_data = model(data)
+            outputs_coord, outputs_class, new_data= model(data)
+            output = {}
+            output['pred_coords'] = outputs_coord
+            output['pred_logits'] = outputs_class
             submit.fill(output, data, new_data)
     submit.write()

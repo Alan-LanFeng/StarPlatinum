@@ -21,9 +21,9 @@ def bool2index(mask):
     return index, mask
 
 
-class inter_candi(STF):
+class inter_candi1(STF):
     def __init__(self, cfg):
-        super(inter_candi, self).__init__(cfg)
+        super(inter_candi1, self).__init__(cfg)
 
         d_model = cfg['d_model']
         h = cfg['attention_head']

@@ -1,7 +1,7 @@
 # Config format schema number
 format_version: 4
 
-model_name: 'inter_candi'
+model_name: 'inter_candi2'
 track: 'interaction'
 
 # dataset related
